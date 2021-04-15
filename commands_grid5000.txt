@@ -1,0 +1,41 @@
+# Connect to Grid5000
+ssh ggrabher@access.grid5000.fr
+
+# Reserve machines
+oarsub -t deploy -l "{cluster='dahu'}/nodes=12,walltime=06:00:00" -q "default" -r "2021-02-26 07:35:00" -n "gabriel tests"
+oarsub -t deploy -l "{cluster='parasilo'}/nodes=12,walltime=11:35:00" -q "default" -r "2021-03-03 19:05:00" -n "Ufrgs"
+oarsub -C pid
+
+	# Reservation utility 
+	oarstat -u
+	oardel pid
+
+	# Check policy
+	usagepolicycheck -t
+
+# Deploy vm image
+kadeploy3 -e debian9-x64-nfs-erods-comd-ml -f $OAR_FILE_NODES -k ~/.ssh/id_rsa.pub
+cd NFS_ERODS/Scripts
+./discovery_clusters.sh
+
+# On a allocated node
+source ~/temp_spark/bashrc
+
+	#Compile
+	cd NFS_FILES/Scripts/APPLICATIONS/MQ/
+	./compile.sh
+
+# On root node
+cd NFS_FILES/Scripts
+./prepare_env.sh 8 2 9 ib0 ""
+./start_apps.sh 8 SUMServer "" 4 ""
+
+# See Tensorboard
+tensorboard --logdir='logs/' --bind_all
+
+
+# paravance
+2 CPUs Intel Xeon E5-2630 v3, 8 cores/CPU, 128GB RAM, 2x558GB HDD, 2 x 10Gb Ethernet
+
+# grisou
+2 CPUs Intel Xeon E5-2630 v3, 8 cores/CPU, 128GB RAM, 2x558GB HDD, 4 x 10Gb Ethernet, 1 x 1Gb Ethernet
