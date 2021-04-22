@@ -14,7 +14,7 @@ int main(int argc, char *argv[]) {
     }
     
     /* Add a built-in module, before Py_Initialize */    
-    if (PyImport_AppendInittab("A3CProcesse", PyInit_SAQNAgent) == -1) {   
+    if (PyImport_AppendInittab("A3CProcesses", PyInit_A3CProcesses) == -1) {   
         fprintf(stderr, "Error: could not extend in-built modules table\n");
         exit(1);
     }
@@ -29,20 +29,20 @@ int main(int argc, char *argv[]) {
     /* Optionally import the module; alternatively,
        import can be deferred until the embedded script
        imports it. */ 
-    pmodule = PyImport_ImportModule("A3CProcesse");
+    pmodule = PyImport_ImportModule("A3CProcesses");
     if (!pmodule) {
         PyErr_Print();
-        fprintf(stderr, "Error: could not import module 'A3CProcesse'\n");
+        fprintf(stderr, "Error: could not import module 'A3CProcesses'\n");
         goto exit_with_error;
     }
 
     /* Now call into your module code. */
     printf("\nStarting Parameter Server");
-    parameter_server_proc(300);
+    PyObject* p_server = parameter_server_proc(300);
 
     printf("\nStarting Worker");
     float start_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
-    PyObject* worker = create_worker(start_state, 1);
+    PyObject* worker = create_worker(start_state,0);
 
     printf("\nGetting first action");
     float middle_state[8] = {30.0, 5.3, 5.3, 10, 8, 8, 77, 7.7};
@@ -51,8 +51,9 @@ int main(int argc, char *argv[]) {
 
     printf("\nClosing Worker");
     float last_state[8] = {8000.0, 1.1, 1.1, 10, 8, 8, 77, 7.7};
-    worker_finish(agent, last_state);
+    worker_finish(worker, last_state);
 
+    parameter_server_kill(p_server);
     /* Clean up after using CPython. */
     PyMem_RawFree(program);
     Py_Finalize();

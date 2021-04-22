@@ -5,7 +5,6 @@ import time
 import random
 import numpy as np
 import matplotlib.pyplot as plt
-import gym
 import tensorflow as tf
 
 ##########################################################################################
@@ -36,64 +35,64 @@ N_step = 15
 class ACNet(object):
     def __init__(self, scope, sess, globalAC=None):
         self.sess = sess
-        OPT_A = tf.train.AdamOptimizer(actor_alpha, beta1=0.99, beta2=0.999, name='OPT_A')
-        OPT_C = tf.train.AdamOptimizer(critic_alpha, beta1=0.99, beta2=0.999, name='OPT_C')          
+        OPT_A = tf.compat.v1.train.AdamOptimizer(actor_alpha, beta1=0.99, beta2=0.999, name='OPT_A')
+        OPT_C = tf.compat.v1.train.AdamOptimizer(critic_alpha, beta1=0.99, beta2=0.999, name='OPT_C')          
         
         if scope == net_scope: # global
-            with tf.variable_scope(scope):
-                self.s = tf.placeholder(tf.float32, [None, OBS_SIZE], 'S')
+            with tf.compat.v1.variable_scope(scope):
+                self.s = tf.compat.v1.placeholder(dtype=tf.float32, shape=(None, OBS_SIZE), name='S')
                 # create global net
                 self.actor_params, self.critic_params = self._create_net(scope)[-2:] # only require params
                 
         else: # local
-            with tf.variable_scope(scope):
-                self.s = tf.placeholder(tf.float32, [None, OBS_SIZE], 'S')
-                self.a = tf.placeholder(tf.int32, [None, COMPOSITE_ACTIONS], 'A')
-                self.critic_target = tf.placeholder(tf.float32, [None, 1], 'critic_target')
-                self.baselined_returns = tf.placeholder(tf.float32, [None, 1], 'baselined_returns') # for calculating advantage 
+            with tf.compat.v1.variable_scope(scope):
+                self.s = tf.compat.v1.placeholder(dtype=tf.float32, shape=(None, OBS_SIZE), name='S')
+                self.a = tf.compat.v1.placeholder(tf.int32, [None, COMPOSITE_ACTIONS], 'A')
+                self.critic_target = tf.compat.v1.placeholder(tf.float32, [None, 1], 'critic_target')
+                self.baselined_returns = tf.compat.v1.placeholder(tf.float32, [None, 1], 'baselined_returns') # for calculating advantage 
                 # create local net
                 self.action_prob, self.V, self.actor_params, self.critic_params = self._create_net(scope)
                     
                 TD_err = tf.subtract(self.critic_target, self.V, name='TD_err')
-                with tf.name_scope('actor_loss'):
-                    log_prob = tf.reduce_sum(tf.log(self.action_prob + 1e-5) * tf.one_hot(self.a, ACTION_SIZE, dtype=tf.float32), axis=1, keep_dims=True)
+                with tf.compat.v1.name_scope('actor_loss'):
+                    log_prob = tf.reduce_sum(input_tensor=tf.math.log(self.action_prob + 1e-5) * tf.one_hot(self.a, ACTION_SIZE, dtype=tf.float32), axis=1, keepdims=True)
                     actor_component = log_prob * tf.stop_gradient(self.baselined_returns)
                     # entropy for exploration
-                    entropy = -tf.reduce_sum(self.action_prob * tf.log(self.action_prob + 1e-5), axis=1, keep_dims=True)  # encourage exploration
-                    self.actor_loss = tf.reduce_mean( -(ENTROPY_BETA * entropy + actor_component) )                                        
-                with tf.name_scope('critic_loss'):
-                    self.critic_loss = tf.reduce_mean(tf.square(TD_err))                      
+                    entropy = -tf.reduce_sum(input_tensor=self.action_prob * tf.math.log(self.action_prob + 1e-5), axis=1, keepdims=True)  # encourage exploration
+                    self.actor_loss = tf.reduce_mean( input_tensor=-(ENTROPY_BETA * entropy + actor_component) )                                        
+                with tf.compat.v1.name_scope('critic_loss'):
+                    self.critic_loss = tf.reduce_mean(input_tensor=tf.square(TD_err))                      
                 # accumulated gradients for local actor    
-                with tf.name_scope('local_actor_grad'):                   
+                with tf.compat.v1.name_scope('local_actor_grad'):                   
                     self.actor_zero_op, self.actor_accumu_op, self.actor_apply_op, actor_accum = self.accumu_grad(OPT_A, self.actor_loss, scope=scope + '/actor')
                 # ********** accumulated gradients for local critic **********
-                with tf.name_scope('local_critic_grad'):
+                with tf.compat.v1.name_scope('local_critic_grad'):
                     self.critic_zero_op, self.critic_accumu_op, self.critic_apply_op, critic_accum = self.accumu_grad(OPT_C, self.critic_loss, scope=scope + '/critic')
                     
-            with tf.name_scope('params'): # push/pull from local/worker perspective
-                with tf.name_scope('push_to_global'):
+            with tf.compat.v1.name_scope('params'): # push/pull from local/worker perspective
+                with tf.compat.v1.name_scope('push_to_global'):
                     self.push_actor_params = OPT_A.apply_gradients(zip(actor_accum, globalAC.actor_params))
                     self.push_critic_params = OPT_C.apply_gradients(zip(critic_accum, globalAC.critic_params))
-                with tf.name_scope('pull_fr_global'):
+                with tf.compat.v1.name_scope('pull_fr_global'):
                     self.pull_actor_params = [local_params.assign(global_params) for local_params, global_params in zip(self.actor_params, globalAC.actor_params)]
                     self.pull_critic_params = [local_params.assign(global_params) for local_params, global_params in zip(self.critic_params, globalAC.critic_params)]                    
                     
     def _create_net(self, scope):
-        w_init = tf.glorot_uniform_initializer()
-        with tf.variable_scope('actor'):
-            hidden = tf.layers.dense(self.s, actor_hidden, tf.nn.relu6, kernel_initializer=w_init, name='hidden')
-            action_prob = tf.layers.dense(hidden, ACTION_SIZE, tf.nn.softmax, kernel_initializer=w_init, name='action_prob')        
-        with tf.variable_scope('critic'):
-            hidden = tf.layers.dense(self.s, critic_hidden, tf.nn.relu6, kernel_initializer=w_init, name='hidden')
-            V = tf.layers.dense(hidden, 1, kernel_initializer=w_init, name='V')         
-        actor_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope + '/actor')
-        critic_params = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope + '/critic')       
+        w_init = tf.compat.v1.glorot_uniform_initializer()
+        with tf.compat.v1.variable_scope('actor'):
+            hidden = tf.compat.v1.layers.dense(self.s, actor_hidden, tf.nn.relu6, kernel_initializer=w_init, name='hidden')
+            action_prob = tf.compat.v1.layers.dense(hidden, ACTION_SIZE, tf.nn.softmax, kernel_initializer=w_init, name='action_prob')        
+        with tf.compat.v1.variable_scope('critic'):
+            hidden = tf.compat.v1.layers.dense(self.s, critic_hidden, tf.nn.relu6, kernel_initializer=w_init, name='hidden')
+            V = tf.compat.v1.layers.dense(hidden, 1, kernel_initializer=w_init, name='V')         
+        actor_params = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES, scope=scope + '/actor')
+        critic_params = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES, scope=scope + '/critic')       
         return action_prob, V, actor_params, critic_params
 
     def accumu_grad(self, OPT, loss, scope):
         # retrieve trainable variables in scope of graph
         #tvs = tf.trainable_variables(scope=scope + '/actor')
-        tvs = tf.trainable_variables(scope=scope)
+        tvs = tf.compat.v1.trainable_variables(scope=scope)
         # ceate a list of variables with the same shape as the trainable
         accumu = [tf.Variable(tf.zeros_like(tv.initialized_value()), trainable=False) for tv in tvs]
         zero_op = [tv.assign(tf.zeros_like(tv)) for tv in accumu] # initialized with 0s
@@ -119,7 +118,7 @@ class ACNet(object):
 
     def choose_action(self, s):  
         SESS = self.sess
-        prob_weights = SESS.run(self.action_prob, feed_dict={self.s: s[None, :]})
+        prob_weights = SESS.run(self.action_prob, feed_dict={self.s: s[None,:]})
         action = np.random.choice(range(prob_weights.shape[1]), p=prob_weights.ravel()) 
         return action             
         
@@ -189,12 +188,12 @@ class Worker(object): # local only
     def change_state(self, state, done):
         #s_, r, done, info = self.env.step(a)
         self.done = done
-        self.r = self.env.calc_reward()
+        self.r = self.env.calc_reward(state)
         self.ep_r += self.r
         self.buffer_s.append(self.s)
         self.buffer_r.append(self.r)
         self.buffer_done.append(self.done)                
-        self.s = state
+        self.s = np.array(state)
         self.t += 1
 
         if self.t > max_global_steps:
@@ -308,32 +307,31 @@ class Worker(object): # local only
 # Cluster Setup
 ##########################################################################################
 cluster = tf.train.ClusterSpec({
-    "worker": ["localhost:2223",
-               "localhost:2224"
-              ],
+    "worker": ["localhost:2223"],
     "ps": ["localhost:2225"]
 })
 
 def parameter_server(max_exec_time):
     #tf.reset_default_graph()
-    
-    server = tf.train.Server(cluster,
+    tf.compat.v1.disable_eager_execution()
+ 
+    server = tf.distribute.Server(cluster,
                              job_name="ps",
                              task_index=0)
-    sess = tf.Session(target=server.target)        
+    sess = tf.compat.v1.Session(target=server.target)        
     
     with tf.device("/job:ps/task:0"):
         GLOBAL_AC = ACNet(net_scope, sess, globalAC=None) # only need its params
         GLOBAL_EP = tf.Variable(0.0, name='GLOBAL_EP') # num of global episodes   
         # a queue of ep_r
-        GLOBAL_RUNNING_R = tf.FIFOQueue(max_global_episodes, tf.float32, shared_name="GLOBAL_RUNNING_R")        
+        GLOBAL_RUNNING_R = tf.queue.FIFOQueue(max_global_episodes, tf.float32, shared_name="GLOBAL_RUNNING_R")        
     
     print("Parameter server: waiting for cluster connection...")
-    sess.run(tf.report_uninitialized_variables())
+    sess.run(tf.compat.v1.report_uninitialized_variables())
     print("Parameter server: cluster ready!")
     
     print("Parameter server: initializing variables...")
-    sess.run(tf.global_variables_initializer())
+    sess.run(tf.compat.v1.global_variables_initializer())
     print("Parameter server: variables initialized")
     
     start_time = time.time()
@@ -362,39 +360,41 @@ def parameter_server(max_exec_time):
     print("Parameter server: ended...")
 
 class WorkerAPI(): 
-    def __init__(self, worker_n):
+    def __init__(self, worker_n, start_state):
         #tf.reset_default_graph()
+        tf.compat.v1.disable_eager_execution()
+
         self.worker_n = worker_n
 
-        self.server = tf.train.Server(cluster,
+        self.server = tf.distribute.Server(cluster,
                                 job_name="worker",
                                 task_index=worker_n)
-        self.sess = tf.Session(target=self.server.target)  
+        self.sess = tf.compat.v1.Session(target=self.server.target)  
     
         with tf.device("/job:ps/task:0"):
             GLOBAL_AC = ACNet(net_scope, self.sess, globalAC=None) # only need its params
             GLOBAL_EP = tf.Variable(0.0, name='GLOBAL_EP') # num of global episodes
             # a queue of ep_r
-            GLOBAL_RUNNING_R = tf.FIFOQueue(max_global_episodes, tf.float32, shared_name="GLOBAL_RUNNING_R")   
+            GLOBAL_RUNNING_R = tf.queue.FIFOQueue(max_global_episodes, tf.float32, shared_name="GLOBAL_RUNNING_R")   
         """
         with tf.device(tf.train.replica_device_setter(
                             worker_device='/job:worker/task:' + str(worker_n),
                             cluster=cluster)):
         """                        
         print("Worker %d: waiting for cluster connection..." % worker_n)
-        self.sess.run(tf.report_uninitialized_variables())
+        self.sess.run(tf.compat.v1.report_uninitialized_variables())
         print("Worker %d: cluster ready!" % worker_n)
         
         #while sess.run(tf.report_uninitialized_variables()):
-        while (self.sess.run(tf.report_uninitialized_variables())).any(): # ********** .any() .all() **********
+        while (self.sess.run(tf.compat.v1.report_uninitialized_variables())).any(): # ********** .any() .all() **********
             print("Worker %d: waiting for variable initialization..." % worker_n)
             time.sleep(1.0)
         print("Worker %d: variables initialized" % worker_n)
         
-        self.w = Worker(str(worker_n), GLOBAL_AC, GLOBAL_EP, GLOBAL_RUNNING_R, self.sess) 
+        self.w = Worker(str(worker_n), GLOBAL_AC, GLOBAL_EP, GLOBAL_RUNNING_R, self.sess, start_state) 
         print("Worker %d: created" % worker_n)
         
-        self.sess.run(tf.global_variables_initializer()) # got to initialize after Worker creation
+        self.sess.run(tf.compat.v1.global_variables_initializer()) # got to initialize after Worker creation
     
     def infer(self, state):
         #w.work()
@@ -421,7 +421,7 @@ cdef public object create_worker(float* start_state, int worker_n):
     for i in range(OBS_SIZE):
         state.append(start_state[i])
     
-    return WorkerAPI(state, worker_n)
+    return WorkerAPI(worker_n, state)
 
 
 cdef public int worker_infer(object agent , float* new_state):
@@ -441,15 +441,18 @@ cdef public void worker_finish(object agent, float* last_state):
     
     agent.finish(state)
 
-cdef public void parameter_server_proc(float max_time):
+cdef public object parameter_server_proc(float max_time):
     ps_proc = Process(target=parameter_server, args=(max_time, ), daemon=True)
     ps_proc.start()
 
+    return ps_proc
     # if not join, parent will terminate before children 
-    ps_proc.join() 
+    #ps_proc.join() 
 
-    ps_proc.terminate()
+    #ps_proc.terminate()
 
+cdef public void parameter_server_kill(object p_server):
+    p_server.terminate()
 
 ##########################################################################################
 # Setup process, rollout and train
