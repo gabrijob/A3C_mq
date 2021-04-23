@@ -12,8 +12,8 @@ import tensorflow as tf
 ##########################################################################################
 
 OBS_SIZE = 8
-ACTION_SIZE = 3
-COMPOSITE_ACTIONS = 2
+CACHE_ACTION_SIZE = 3
+FLOW_ACTION_SIZE = 2
 
 net_scope = 'global'
 max_global_episodes = 500#5 #500
@@ -47,7 +47,7 @@ class ACNet(object):
         else: # local
             with tf.compat.v1.variable_scope(scope):
                 self.s = tf.compat.v1.placeholder(dtype=tf.float32, shape=(None, OBS_SIZE), name='S')
-                self.a = tf.compat.v1.placeholder(tf.int32, [None, COMPOSITE_ACTIONS], 'A')
+                self.a = tf.compat.v1.placeholder(tf.int32, [None, 2], 'A') # shape (batches, [cache_action, flow_action])
                 self.critic_target = tf.compat.v1.placeholder(tf.float32, [None, 1], 'critic_target')
                 self.baselined_returns = tf.compat.v1.placeholder(tf.float32, [None, 1], 'baselined_returns') # for calculating advantage 
                 # create local net
@@ -55,7 +55,7 @@ class ACNet(object):
                     
                 TD_err = tf.subtract(self.critic_target, self.V, name='TD_err')
                 with tf.compat.v1.name_scope('actor_loss'):
-                    log_prob = tf.reduce_sum(input_tensor=tf.math.log(self.action_prob + 1e-5) * tf.one_hot(self.a, ACTION_SIZE, dtype=tf.float32), axis=1, keepdims=True)
+                    log_prob = tf.reduce_sum(input_tensor=tf.math.log(self.action_prob + 1e-5) * tf.one_hot(self.a, CACHE_ACTION_SIZE+FLOW_ACTION_SIZE, dtype=tf.float32), axis=1, keepdims=True)
                     actor_component = log_prob * tf.stop_gradient(self.baselined_returns)
                     # entropy for exploration
                     entropy = -tf.reduce_sum(input_tensor=self.action_prob * tf.math.log(self.action_prob + 1e-5), axis=1, keepdims=True)  # encourage exploration
@@ -81,7 +81,8 @@ class ACNet(object):
         w_init = tf.compat.v1.glorot_uniform_initializer()
         with tf.compat.v1.variable_scope('actor'):
             hidden = tf.compat.v1.layers.dense(self.s, actor_hidden, tf.nn.relu6, kernel_initializer=w_init, name='hidden')
-            action_prob = tf.compat.v1.layers.dense(hidden, ACTION_SIZE, tf.nn.softmax, kernel_initializer=w_init, name='action_prob')        
+            action_prob = tf.compat.v1.layers.dense(hidden, CACHE_ACTION_SIZE+FLOW_ACTION_SIZE, tf.nn.softmax, kernel_initializer=w_init, name='action_prob') 
+            # action_prob output is an array of size 5, so a shape correction is needed to get the composite action tuple       
         with tf.compat.v1.variable_scope('critic'):
             hidden = tf.compat.v1.layers.dense(self.s, critic_hidden, tf.nn.relu6, kernel_initializer=w_init, name='hidden')
             V = tf.compat.v1.layers.dense(hidden, 1, kernel_initializer=w_init, name='V')         
@@ -119,9 +120,13 @@ class ACNet(object):
     def choose_action(self, s):  
         SESS = self.sess
         prob_weights = SESS.run(self.action_prob, feed_dict={self.s: s[None,:]})
-        action = np.random.choice(range(prob_weights.shape[1]), p=prob_weights.ravel()) 
-        return action             
-        
+        ## divide prob_weights and get action1 and action2 and return tuple
+        cache_action = np.random.choice(range(prob_weights.shape[1])[:CACHE_ACTION_SIZE], p=prob_weights.ravel()[:CACHE_ACTION_SIZE])
+        flow_action = np.random.choice(range(prob_weights.shape[1])[FLOW_ACTION_SIZE:], p=prob_weights.ravel()[FLOW_ACTION_SIZE:])
+        #print("prob_weights ")
+        #print(prob_weights)
+        return (cache_action, flow_action)            
+
     def init_grad_storage_actor(self):
         SESS = self.sess
         SESS.run(self.actor_zero_op)
@@ -201,9 +206,9 @@ class Worker(object): # local only
             self.start_episode()
 
     def get_action(self):
-        self.a = self.AC.choose_action(self.s)
-        self.buffer_a.append(self.a)
-        return self.a
+        composite_action = self.AC.choose_action(self.s)
+        self.buffer_a.append(composite_action)
+        return composite_action
 
     def end_episode(self):
         # if statement will always be done in this case... 
