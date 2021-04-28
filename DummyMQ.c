@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
 
     /* Now call into your module code. */
     printf("\nStarting Parameter Server");
-    PyObject* p_server = parameter_server_proc(300);
+    PyObject* p_server = parameter_server_proc(180);
 
     printf("\nStarting Worker");
     float start_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
@@ -46,8 +46,9 @@ int main(int argc, char *argv[]) {
 
     printf("\nGetting first action");
     float middle_state[8] = {30.0, 5.3, 5.3, 10, 8, 8, 77, 7.7};
-    int act = worker_infer(worker, middle_state);
-    printf("\nAction is %d", act);
+    int* actions = worker_infer(worker, middle_state);
+    printf("\nCache action is %d", actions[0]);
+    printf("\nFlow action is %d", actions[1]);
 
     printf("\nClosing Worker");
     float last_state[8] = {8000.0, 1.1, 1.1, 10, 8, 8, 77, 7.7};

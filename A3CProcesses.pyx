@@ -1,5 +1,6 @@
 from multiprocessing import Process
 from cpython cimport array
+import array
 
 import time
 import random
@@ -429,15 +430,19 @@ cdef public object create_worker(float* start_state, int worker_n):
     return WorkerAPI(worker_n, state)
 
 
-cdef public int worker_infer(object agent , float* new_state):
+cdef public int* worker_infer(object agent , float* new_state):
     state = []
     for i in range(OBS_SIZE):
         state.append(new_state[i])
 
-    action = agent.infer(state)
+    actions = agent.infer(state)
+    cdef int action_arr[2];
+    action_arr[0] = actions[0];
+    action_arr[1] = actions[1];
+    #cdef array.array action_arr = array.array('i', actions)
     #action = action % (ACTION_SPACE_SIZE/2) - 1
 
-    return action
+    return action_arr
 
 cdef public void worker_finish(object agent, float* last_state):
     state = []
@@ -458,6 +463,7 @@ cdef public object parameter_server_proc(float max_time):
 
 cdef public void parameter_server_kill(object p_server):
     p_server.terminate()
+    return
 
 ##########################################################################################
 # Setup process, rollout and train
