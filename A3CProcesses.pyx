@@ -6,7 +6,12 @@ import time
 import random
 import numpy as np
 import matplotlib.pyplot as plt
+import os
+#os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import tensorflow as tf
+#import logging
+#logging.getLogger("tensorflow").setLevel(logging.ERROR)
 
 ##########################################################################################
 # Global Variable and Hyperparameters
@@ -56,7 +61,7 @@ class ACNet(object):
                     
                 TD_err = tf.subtract(self.critic_target, self.V, name='TD_err')
                 with tf.compat.v1.name_scope('actor_loss'):
-                    log_prob = tf.reduce_sum(input_tensor=tf.math.log(self.action_prob + 1e-5) * tf.one_hot(self.a, CACHE_ACTION_SIZE+FLOW_ACTION_SIZE, dtype=tf.float32), axis=1, keepdims=True)
+                    log_prob = tf.reduce_sum(input_tensor=tf.math.log(self.action_prob + 1e-5) * tf.one_hot(self.a, CACHE_ACTION_SIZE*FLOW_ACTION_SIZE, dtype=tf.float32), axis=1, keepdims=True)
                     actor_component = log_prob * tf.stop_gradient(self.baselined_returns)
                     # entropy for exploration
                     entropy = -tf.reduce_sum(input_tensor=self.action_prob * tf.math.log(self.action_prob + 1e-5), axis=1, keepdims=True)  # encourage exploration
@@ -82,8 +87,8 @@ class ACNet(object):
         w_init = tf.compat.v1.glorot_uniform_initializer()
         with tf.compat.v1.variable_scope('actor'):
             hidden = tf.compat.v1.layers.dense(self.s, actor_hidden, tf.nn.relu6, kernel_initializer=w_init, name='hidden')
-            action_prob = tf.compat.v1.layers.dense(hidden, CACHE_ACTION_SIZE+FLOW_ACTION_SIZE, tf.nn.softmax, kernel_initializer=w_init, name='action_prob') 
-            # action_prob output is an array of size 5, so a shape correction is needed to get the composite action tuple       
+            action_prob = tf.compat.v1.layers.dense(hidden, CACHE_ACTION_SIZE*FLOW_ACTION_SIZE, tf.nn.softmax, kernel_initializer=w_init, name='action_prob') 
+            # action_prob output is an array of size 6, so a shape correction is needed to get the composite action tuple       
         with tf.compat.v1.variable_scope('critic'):
             hidden = tf.compat.v1.layers.dense(self.s, critic_hidden, tf.nn.relu6, kernel_initializer=w_init, name='hidden')
             V = tf.compat.v1.layers.dense(hidden, 1, kernel_initializer=w_init, name='V')         
@@ -122,10 +127,18 @@ class ACNet(object):
         SESS = self.sess
         prob_weights = SESS.run(self.action_prob, feed_dict={self.s: s[None,:]})
         ## divide prob_weights and get action1 and action2 and return tuple
-        cache_action = np.random.choice(range(prob_weights.shape[1])[:CACHE_ACTION_SIZE], p=prob_weights.ravel()[:CACHE_ACTION_SIZE])
-        flow_action = np.random.choice(range(prob_weights.shape[1])[FLOW_ACTION_SIZE:], p=prob_weights.ravel()[FLOW_ACTION_SIZE:])
+        composite_action =  np.random.choice(range(prob_weights.shape[1])[:CACHE_ACTION_SIZE*FLOW_ACTION_SIZE], p=prob_weights.ravel()[:CACHE_ACTION_SIZE*FLOW_ACTION_SIZE])
+ 
+        #cache_action = np.random.choice(range(prob_weights.shape[1])[:CACHE_ACTION_SIZE], p=prob_weights.ravel()[:CACHE_ACTION_SIZE])
+        #flow_action = np.random.choice(range(prob_weights.shape[1])[FLOW_ACTION_SIZE:], p=prob_weights.ravel()[FLOW_ACTION_SIZE:])
+        cache_action = composite_action % 3
+        flow_action = 1 if composite_action > 2 else 0
+        print("compo action: ", composite_action)
         #print("prob_weights ")
-        #print(prob_weights)
+        #p_sum = 0
+        #for p in prob_weights[0]:
+        #    p_sum = p_sum + p
+        #print(prob_weights, p_sum)
         return (cache_action, flow_action)            
 
     def init_grad_storage_actor(self):
@@ -312,15 +325,34 @@ class Worker(object): # local only
 ##########################################################################################
 # Cluster Setup
 ##########################################################################################
-cluster = tf.train.ClusterSpec({
-    "worker": ["localhost:2223"],
-    "ps": ["localhost:2225"]
-})
+#cluster = tf.train.ClusterSpec({
+#    "worker": ["localhost:2223"],
+#    "ps": ["localhost:2225"]
+#})
 
-def parameter_server(max_exec_time):
+def new_cluster(ips):
+    cluster_obj = {
+        "worker" : [],
+        "ps" : []
+    }
+    
+    print(ips)
+
+    for i,ip in enumerate(ips):
+        if i == 0:
+            cluster_obj["ps"].append(ip.decode('ascii') + ':52223')
+        else:
+            cluster_obj["worker"].append(ip.decode('ascii') + ':52222')
+    
+    return tf.train.ClusterSpec(cluster_obj)
+
+
+def parameter_server(max_exec_time, ips):
     #tf.reset_default_graph()
     tf.compat.v1.disable_eager_execution()
  
+    cluster = new_cluster(ips)
+
     server = tf.distribute.Server(cluster,
                              job_name="ps",
                              task_index=0)
@@ -366,11 +398,13 @@ def parameter_server(max_exec_time):
     print("Parameter server: ended...")
 
 class WorkerAPI(): 
-    def __init__(self, worker_n, start_state):
+    def __init__(self, worker_n, start_state, ips):
         #tf.reset_default_graph()
         tf.compat.v1.disable_eager_execution()
 
         self.worker_n = worker_n
+
+        cluster = new_cluster(ips)
 
         self.server = tf.distribute.Server(cluster,
                                 job_name="worker",
@@ -414,7 +448,7 @@ class WorkerAPI():
     def finish(self, state):
         self.w.change_state(state, done=True)
         #print("Worker %d: blocking..." % worker_n)
-        self.server.join() # currently blocks forever
+        #self.server.join() # currently blocks forever
         print("Worker %d: ended..." % self.worker_n)
 
 
@@ -422,12 +456,17 @@ class WorkerAPI():
 # Cython API
 ##########################################################################################
 
-cdef public object create_worker(float* start_state, int worker_n):
+cdef public object create_worker(float* start_state, int worker_n, char** ip_list, int ip_count):
     state = []
     for i in range(OBS_SIZE):
         state.append(start_state[i])
+
+    ips = []
+    for i in range(ip_count):
+        ips.append(ip_list[i])
+
     
-    return WorkerAPI(worker_n, state)
+    return WorkerAPI(worker_n, state, ips)
 
 
 cdef public int* worker_infer(object agent , float* new_state):
@@ -451,8 +490,12 @@ cdef public void worker_finish(object agent, float* last_state):
     
     agent.finish(state)
 
-cdef public object parameter_server_proc(float max_time):
-    ps_proc = Process(target=parameter_server, args=(max_time, ), daemon=True)
+cdef public object parameter_server_proc(float max_time, char** ip_list, int ip_count):
+    ips = []
+    for i in range(ip_count):
+        ips.append(ip_list[i])
+
+    ps_proc = Process(target=parameter_server, args=(max_time,ips, ), daemon=True)
     ps_proc.start()
 
     return ps_proc
@@ -462,6 +505,8 @@ cdef public object parameter_server_proc(float max_time):
     #ps_proc.terminate()
 
 cdef public void parameter_server_kill(object p_server):
+    # join only if you want to wait to max time timeout, else just terminate it
+    #p_server.join()
     p_server.terminate()
     return
 
