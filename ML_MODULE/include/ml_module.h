@@ -4,6 +4,7 @@
 #include "Python.h" 
 #include "SAQNAgent.h"
 #include "A3CProcesses.h"
+#include <zmq>
 
 /* Module Global Variables*/
 extern PyObject* pmodule;

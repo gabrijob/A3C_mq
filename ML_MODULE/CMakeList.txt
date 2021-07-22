@@ -1,0 +1,17 @@
+cmake_minimum_required(VERSION 3.9)
+
+project(ml_module VERSION 1.0.1 DESCRIPTION "Machine learning module for Spark message queue applications")
+
+add_library(ml_module SHARED
+    src/ml_module.c
+    src/A3CProcesses.c
+    src/SAQNAgent_thpt_var_min_mem.c
+)
+
+set_target_properties(ml_module PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 1
+    PUBLIC_HEADER include/ml_module.h)
+
+target_include_directories(ml_module PRIVATE include)
+target_include_directories(ml_module PRIVATE src)
