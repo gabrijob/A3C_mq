@@ -1,10 +1,7 @@
 #ifndef ML_MODULE_HEADER
 #define ML_MODULE_HEADER
 
-#include "Python.h" 
-#include "SAQNAgent.h"
-#include "A3CProcesses.h"
-#include <zmq>
+#include <Python.h>
 
 /* Module Global Variables*/
 extern PyObject* pmodule;

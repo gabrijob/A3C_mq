@@ -1,7 +1,26 @@
 #ifndef ML_MODULE_CODE
 #define ML_MODULE_CODE
 
+#include <math.h>
+#include <stdio.h>
+#include <zmq.h>
+#include <unistd.h>
+#include <getopt.h>
+#include <stdlib.h>
+#include <mpi.h>
+#include <string.h>
+#include <sys/time.h>
+#include <assert.h>
+#include <time.h>
+#include <inttypes.h>
+#include <omp.h>
+#include <string.h>
+#include <inttypes.h>
+
+#include "SAQNAgent.h"
+#include "A3CProcesses.h"
 #include "ml_module.h"
+
 
 #define SAQN_RUN
 
@@ -27,7 +46,7 @@ void ml_agent_worker_action(int controll, int msgsize, void ** split_sockets_sta
 int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float state, int *qosbase, int* vector, float *last_second);
 
 
-void my_free (void *data, void *hint){
+void free_data (void *data, void *hint){
     free (data);
 }
 
@@ -73,7 +92,7 @@ float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastone
 			
 		//throughput mean
 		if ((((float)RecTotal*msgsize)/1024/1024)/second > 0){
-		 	global_avg_spark = (((float)RecTotal*msgsize)/1024/1024)/second;
+		 	*global_avg_spark = (((float)RecTotal*msgsize)/1024/1024)/second;
 		}
 
 
@@ -83,10 +102,10 @@ float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastone
 			//saqn_time_csv = fopen("/tmp/SAQN_TIME.csv", "a");
 				
 			clock_t start, end;
-			throughput_var = global_avg_spark - last_global_avg;
+			throughput_var = *global_avg_spark - last_global_avg;
 			/* Get new action from agent */
 			//[total_thpt, thpt_var, proc_t, sche_t, msgs_to_spark, msgs_in_gb, ready_mem, spark_thresh]
-			float curr_env_state[8] = {global_avg_spark, throughput_var, cDELAY , cTIMEP, RecSparkTotal, RecMQTotal, *state, *qosbase};	
+			float curr_env_state[8] = {*global_avg_spark, throughput_var, cDELAY , cTIMEP, RecSparkTotal, RecMQTotal, *state, *qosbase};	
 			start = clock();
 			float action = infer(agent, curr_env_state);
 			//printf("\nNew action is %f. ", action);
@@ -98,7 +117,7 @@ float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastone
 			//printf("\n Second is: %f || Last second is: %f", second, *last_second);
 			//fprintf(saqn_time_csv, "%f \t,\t %f\n", second, cpu_time_used);
 			*last_second = second;
-			last_global_avg = global_avg_spark;
+			last_global_avg = *global_avg_spark;
 		
 			//fflush(saqn_time_csv);
 			//fclose(saqn_time_csv);
@@ -136,7 +155,7 @@ float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastone
 			
 		}
 			
-		if (*cTIMEP == 0)
+		if (cTIMEP == 0)
 		{
 			*qosbase = qosmin;
 			vector[0] = 0;
@@ -166,7 +185,7 @@ float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastone
 		strcat(cat,recMaster);
 		void * butter = malloc(strlen(cat+1));
  		memcpy(butter,cat,strlen(cat));
-        zmq_msg_init_data (&msgstate, butter,strlen(cat), my_free, NULL);
+        zmq_msg_init_data (&msgstate, butter,strlen(cat), free_data, NULL);
 
 		if(zmq_msg_send(&msgstate, split_sockets_state[i], ZMQ_DONTWAIT) == -1)
         {
@@ -191,7 +210,7 @@ int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIM
     gcvt((float)ttpersocket, 15, SentMaster);
     void * butter = malloc(strlen(SentMaster+1));
     memcpy(butter,SentMaster,strlen(SentMaster));
-    zmq_msg_init_data (&msg, butter,strlen(SentMaster), my_free, NULL);
+    zmq_msg_init_data (&msg, butter,strlen(SentMaster), free_data, NULL);
     if(zmq_msg_send(&msg,split_sockets[controll], ZMQ_DONTWAIT) == -1) {
       	//printf ("error in zmq_connect: - mq sending data %s \n", zmq_strerror (errno));
     }
