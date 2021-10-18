@@ -2,6 +2,7 @@ from multiprocessing import Process
 from cpython cimport array
 import array
 
+import csv
 import time
 import random
 import numpy as np
@@ -22,18 +23,19 @@ CACHE_ACTION_SIZE = 3
 FLOW_ACTION_SIZE = 2
 
 net_scope = 'global'
-max_global_episodes = 500#5 #500
+max_global_episodes = 5000#5 #500
 delay_rate = 4000 # T steps
-max_global_steps = 100
+max_global_steps = 100 #500
 
-GAMMA = 0.999 #0.99
-ENTROPY_BETA = 0.1 #0.01
+GAMMA = 0.9 #0.999
+ENTROPY_BETA = 0.5 #0.01
 actor_alpha = 0.01   
 critic_alpha = 0.01   
 actor_hidden = 64#4 #128 #200
 critic_hidden = 64#4 #128 #200
 N_step = 15
 
+REWARD_FILE = "/tmp/a3c_{}_rewards.csv"
 
 ##########################################################################################
 # Tensorflow A3C Graph, ops
@@ -46,14 +48,14 @@ class ACNet(object):
         
         if scope == net_scope: # global
             with tf.compat.v1.variable_scope(scope):
-                self.s = tf.compat.v1.placeholder(dtype=tf.float32, shape=(None, OBS_SIZE), name='S')
+                self.s = tf.compat.v1.placeholder(tf.float32, [None, OBS_SIZE], 'S')
                 # create global net
                 self.actor_params, self.critic_params = self._create_net(scope)[-2:] # only require params
                 
         else: # local
             with tf.compat.v1.variable_scope(scope):
-                self.s = tf.compat.v1.placeholder(dtype=tf.float32, shape=(None, OBS_SIZE), name='S')
-                self.a = tf.compat.v1.placeholder(tf.int32, [None, 2], 'A') # shape (batches, [cache_action, flow_action])
+                self.s = tf.compat.v1.placeholder(tf.float32, [None, OBS_SIZE], 'S')
+                self.a = tf.compat.v1.placeholder(tf.int32, [None, ], 'A') # shape (batches, )
                 self.critic_target = tf.compat.v1.placeholder(tf.float32, [None, 1], 'critic_target')
                 self.baselined_returns = tf.compat.v1.placeholder(tf.float32, [None, 1], 'baselined_returns') # for calculating advantage 
                 # create local net
@@ -126,21 +128,18 @@ class ACNet(object):
     def choose_action(self, s):  
         SESS = self.sess
         prob_weights = SESS.run(self.action_prob, feed_dict={self.s: s[None,:]})
-        ## divide prob_weights and get action1 and action2 and return tuple
-        composite_action =  np.random.choice(range(prob_weights.shape[1])[:CACHE_ACTION_SIZE*FLOW_ACTION_SIZE], p=prob_weights.ravel()[:CACHE_ACTION_SIZE*FLOW_ACTION_SIZE])
- 
-        #cache_action = np.random.choice(range(prob_weights.shape[1])[:CACHE_ACTION_SIZE], p=prob_weights.ravel()[:CACHE_ACTION_SIZE])
-        #flow_action = np.random.choice(range(prob_weights.shape[1])[FLOW_ACTION_SIZE:], p=prob_weights.ravel()[FLOW_ACTION_SIZE:])
-        cache_action = composite_action % 3
-        flow_action = 1 if composite_action > 2 else 0
-        print("compo action: ", composite_action)
+        
         #print("prob_weights ")
         #p_sum = 0
         #for p in prob_weights[0]:
         #    p_sum = p_sum + p
         #print(prob_weights, p_sum)
-        return (cache_action, flow_action)            
 
+        #composite_action =  np.random.choice(range(prob_weights.shape[1])[:CACHE_ACTION_SIZE*FLOW_ACTION_SIZE], p=prob_weights.ravel()[:CACHE_ACTION_SIZE*FLOW_ACTION_SIZE])
+        #return composite_action
+        action = np.random.choice( range(prob_weights.shape[1]), p=prob_weights.ravel() )
+        return action
+        
     def init_grad_storage_actor(self):
         SESS = self.sess
         SESS.run(self.actor_zero_op)
@@ -148,7 +147,7 @@ class ACNet(object):
     def accumu_grad_actor(self, feed_dict):
         SESS = self.sess
         SESS.run([self.actor_accumu_op], feed_dict)          
-    
+
     def apply_accumu_grad_actor(self, feed_dict):
         SESS = self.sess
         SESS.run([self.actor_apply_op], feed_dict)   
@@ -175,16 +174,28 @@ class SparkMQEnv(object): # local only
         np.random.seed(1)
         tf.compat.v1.set_random_seed(1)
 
+        # in GB
         self.maxqos = upper_limit
         self.minqos = lower_limit
 
+        # in seconds
+        self.max_sched_t = 30000
+        self.min_sched_t = 0
+
+        # in GB/s
+        self.max_thpt = 1500
+        self.min_thpt = 0
+
     def calc_reward(self, state):
         thpt_avg = state[0]
-        max_cache = state[7]
+        cache = state[7]
         sched_t = state [3]
 
-        reward = - max_cache/thpt_avg - sched_t
+        thpt_normalized = 2 * (thpt_avg - self.min_thpt) / (self.max_thpt - self.min_thpt) -1 # normalized between [-1,1]
+        cache_normalized = 2 * (self.maxqos - cache) / (self.maxqos - self.minqos) -1 # normalized between [-1,1]
+        sched_t_normalized =2 * (self.max_sched_t - sched_t) / (self.max_sched_t - self.min_sched_t) -1 # normalized between [-1,1]
 
+        reward =  thpt_normalized + cache_normalized + sched_t_normalized
         return reward 
 
 
@@ -204,25 +215,46 @@ class Worker(object): # local only
         self.s = state
         self.start_episode()
 
+        with open(REWARD_FILE.format(self.name), 'w') as f:
+            writer = csv.writer(f)
+            writer.writerow(['episode', 'reward'])
+            
+
     def change_state(self, state, done):
         #s_, r, done, info = self.env.step(a)
         self.done = done
+        self.t += 1
+
+        # end episode before calculating new reward (necessary to keep buffers the same shape)
+        if self.t > max_global_steps:
+            self.end_episode()
+            if not done:
+                self.start_episode()
+        
         self.r = self.env.calc_reward(state)
         self.ep_r += self.r
         self.buffer_s.append(self.s)
         self.buffer_r.append(self.r)
         self.buffer_done.append(self.done)                
         self.s = np.array(state)
-        self.t += 1
+        #self.t += 1
 
-        if self.t > max_global_steps:
-            self.end_episode()
-            self.start_episode()
+        #if self.t > max_global_steps && not done:
+            #self.end_episode()
+            #self.start_episode()
 
     def get_action(self):
-        composite_action = self.AC.choose_action(self.s)
-        self.buffer_a.append(composite_action)
-        return composite_action
+        action = self.AC.choose_action(self.s)
+        self.buffer_a.append(action)        
+        #print("action: ", action)
+    
+        #cache_action = np.random.choice(range(prob_weights.shape[1])[:CACHE_ACTION_SIZE], p=prob_weights.ravel()[:CACHE_ACTION_SIZE])
+        #flow_action = np.random.choice(range(prob_weights.shape[1])[FLOW_ACTION_SIZE:], p=prob_weights.ravel()[FLOW_ACTION_SIZE:])
+        cache_action = action % 3 - 1
+        flow_action = 1 if action > 2 else 0
+        
+        return (cache_action, flow_action)
+        
 
     def end_episode(self):
         # if statement will always be done in this case... 
@@ -268,9 +300,16 @@ class Worker(object): # local only
         qe = self.GLOBAL_RUNNING_R.enqueue(self.ep_r)
         self.sess.run(qe) 
 
+        # Save episode reward on csv file
+        with open(REWARD_FILE.format(self.name), 'a') as f:
+            writer = csv.writer(f)
+            writer.writerow([self.T, self.ep_r])
+         
+
     def start_episode(self):
         #self.s = self.env.reset()
         self.ep_r = 0 # reward per episode
+        self.t = 0
         self.done = False
         self.buffer_s, self.buffer_a, self.buffer_r, self.buffer_done = [], [], [], []
         self.AC.pull_global()
@@ -336,14 +375,18 @@ def new_cluster(ips):
         "ps" : []
     }
     
-    print(ips)
+    #print(ips)
+    start_port = 52220
 
     for i,ip in enumerate(ips):
         if i == 0:
-            cluster_obj["ps"].append(ip.decode('ascii') + ':52223')
-        else:
-            cluster_obj["worker"].append(ip.decode('ascii') + ':52222')
-    
+        #    cluster_obj["ps"].append(ip.decode('ascii') + ':52223')
+            cluster_obj["ps"].append(ip.decode('ascii') + ':' + str(start_port))
+        #else:
+        #    cluster_obj["worker"].append(ip.decode('ascii') + ':52222')
+        cluster_obj["worker"].append(ip.decode('ascii') + ':' + str(start_port + 1))
+
+
     return tf.train.ClusterSpec(cluster_obj)
 
 
@@ -438,7 +481,7 @@ class WorkerAPI():
     
     def infer(self, state):
         #w.work()
-        print("Worker %d: w.work()" % self.worker_n)
+        #print("Worker %d: w.work()" % self.worker_n)
         self.w.change_state(state, done=False)
 
         action = self.w.get_action()
@@ -449,7 +492,7 @@ class WorkerAPI():
         self.w.change_state(state, done=True)
         #print("Worker %d: blocking..." % worker_n)
         #self.server.join() # currently blocks forever
-        print("Worker %d: ended..." % self.worker_n)
+        #print("Worker %d: ended..." % self.worker_n)
 
 
 ##########################################################################################

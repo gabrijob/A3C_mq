@@ -36,23 +36,22 @@ int main(int argc, char *argv[]) {
         goto exit_with_error;
     }
 
-    char* ip_list[2];
+    char* ip_list[1];
     ip_list[0] = "localhost";
-    ip_list[1] = "localhost";
 
     /* Now call into your module code. */
     printf("\nStarting Parameter Server");
-    PyObject* p_server = parameter_server_proc(180, ip_list, 2);
+    PyObject* p_server = parameter_server_proc(180, ip_list, 1);
 
     printf("\nStarting Worker");
     float start_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
-    PyObject* worker = create_worker(start_state,0, ip_list, 2);
+    PyObject* worker = create_worker(start_state,0, ip_list, 1);
 
     printf("\nGetting first action");
     //float middle_state[8] = {30.0, 5.3, 5.3, 10, 8, 8, 77, 7.7};
     int* actions;
-    for(int i=1; i<5; i++) {
-    	float middle_state[8] = {30.0*i, 5.3*i, 5.3*i, 10*i, 8*i, 8*i, 77*i, 7.7*i};
+    for(int i=1; i<1010; i++) {
+    	float middle_state[8] = {i%30, i%5, i%5, i%10, i%8, i%8, i%77,i% 7};
 	actions = worker_infer(worker, middle_state);
     	printf("\nCache action is %d", actions[0]);
     	printf("\nFlow action is %d", actions[1]);

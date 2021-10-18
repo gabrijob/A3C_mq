@@ -21,8 +21,9 @@
 #include "A3CProcesses.h"
 #include "ml_module.h"
 
+int ml_init_counts[8] = {0,0,0,0,0,0,0,0};
 
-#define SAQN_RUN
+#define A3C_RUN
 
 PyObject* pmodule;
 wchar_t *program;
@@ -37,35 +38,110 @@ float throughput_var=0;
 
 
 /* Agent's code to run on the master MQ */
-void ml_agent_master_action(int msgsize, int split_ipqueue_size, void ** split_sockets_state, void ** split_sockets, int qosmin, int qosmax, float second,
-float *last_second, int flagState, float RecTotal, float RecMQTotal, float avgRecMQTotal, float RecSparkTotal, int cDELAY, int cTIMEP,
-float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastonespark, float maxth, float measure); 
+int ml_agent_master_action(int msgsize, int split_ipqueue_size, void ** split_sockets_state, void ** split_sockets, int qosmin, int qosmax, float second, float *last_second, int flagState, float RecTotal, float RecMQTotal, float avgRecMQTotal, float RecSparkTotal, int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float *global_avg_spark, float *state, float *qosbase, int* vector, float *lastonespark, float maxth, float measure); 
 
 /* Agent's code to run on the worker MQ */
-void ml_agent_worker_action(int controll, int msgsize, void ** split_sockets_state, void ** split_sockets, float second,
-int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float state, int *qosbase, int* vector, float *last_second);
+int ml_agent_worker_action(int controll, int msgsize, void ** split_sockets_state, void ** split_sockets, float second,
+int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float state, float *qosbase, int* vector, float *last_second, int qosmin, int qosmax);
+
+/* A3C Agent Action */
+int a3c_agent_act(int msgsize, int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float state, float *qosbase, int* vector, float *last_second, float second, int qosmin, int qosmax);	
 
 
 void free_data (void *data, void *hint){
     free (data);
 }
 
-
-void ml_agent_init(int controll, float qosmin, float qosmax, int split_ipqueue_size, char** split_ipqueue, int duration) {
-
-   if (controll == 0) {
-	printf("\nControll Agent Start \n");
+void ml_agent_import(const char* argv_0, int argc) {
+	/* Import Agent */
+    	program = Py_DecodeLocale(argv_0, NULL);
+   	if (program == NULL) {
+	    	fprintf(stderr, "Fatal error: cannot decode argv[0], got %d arguments\n", argc);
+	    	exit(1);
+    	}
+ 	/* Add a built-in module, before Py_Initialize */    
 #ifdef SAQN_RUN
-	printf("\nStarting Agent\n");
-	float start_state[8] = {0.0,0.0,0.0,0.0,0,0,0,0};
-	agent = createAgent(start_state, qosmin, qosmax);
+	if (PyImport_AppendInittab("SAQNAgent", PyInit_SAQNAgent) == -1) {   
+		fprintf(stderr, "Error: could not extend in-built modules table\n");
+		exit(1);
+	}
 #endif
 #ifdef A3C_RUN
-	printf("\nStarting Parameter Server\n");
-	for(int i=0; i < split_ipqueue_size; i++) {
-		printf("\n%s", split_ipqueue[i]);
+	if (PyImport_AppendInittab("A3CProcesses", PyInit_A3CProcesses) == -1) {   
+		fprintf(stderr, "Error: could not extend in-built modules table\n");
+		exit(1);
 	}
-	p_server = parameter_server_proc(duration + 60, split_ipqueue, split_ipqueue_size);
+#endif
+
+	/* Pass argv[0] to the Python interpreter */
+	Py_SetProgramName(program);
+    	/* Initialize the Python interpreter.  Required.  If this step fails, it will be a fatal error. */
+    	Py_Initialize();
+    	/* Optionally import the module; alternatively,
+	 **import can be deferred until the embedded script
+	 **imports it. */ 
+#ifdef SAQN_RUN
+	pmodule = PyImport_ImportModule("SAQNAgent");
+	if (!pmodule) {
+	       	PyErr_Print();
+		fprintf(stderr, "Error: could not import module 'SAQNAgent'\n");
+        	PyMem_RawFree(program);
+		Py_Finalize();
+		exit(1);
+	}
+#endif
+#ifdef A3C_RUN
+	pmodule = PyImport_ImportModule("A3CProcesses");
+	if (!pmodule) {
+	       	PyErr_Print();
+		fprintf(stderr, "Error: could not import module 'A3CProcesses'\n");
+        	PyMem_RawFree(program);
+		Py_Finalize();
+		exit(1);
+	}
+#endif
+
+
+}
+
+
+int ml_agent_init(int controll, float qosmin, float qosmax, int split_ipqueue_size, char** split_ipqueue, int duration) {
+
+   char** iplist;
+   int iplist_size = 0;
+
+   ml_init_counts[controll]++;
+
+   // Test if split_ipqueue list is valid
+   if (split_ipqueue == NULL || split_ipqueue_size == 0) {
+   	//ret = -3;
+	//return ret;
+	// Use local ip
+	iplist = (char **) calloc(1, sizeof(char*));
+	iplist[0] = "localhost";
+	//iplist[1] = "localhost";
+	iplist_size = 1;
+   }
+   else {
+   	iplist = split_ipqueue;
+	iplist_size = split_ipqueue_size + 1; //split_ipqueue_size is actually the last index
+   }
+
+   if (controll == 0) {
+	//printf("\nControll Agent Start \n");
+#ifdef SAQN_RUN
+	//printf("\nStarting Agent\n");
+	float start_state[8] = {0.0,0.0,0.0,0.0,0,0,0,0};
+	agent = createAgent(start_state, qosmin, qosmax);
+	if (agent == NULL) return  -1;
+#endif
+#ifdef A3C_RUN
+	//printf("\nStarting Parameter Server\n");
+	//for(int i=0; i < split_ipqueue_size; i++) {
+	//	printf("\n%s", split_ipqueue[i]);
+	//}
+	p_server = parameter_server_proc(duration + 60, iplist, iplist_size);
+	if (p_server == NULL) return  -2;
 #endif
 
 #ifdef RANDOM_ACTION
@@ -74,17 +150,21 @@ void ml_agent_init(int controll, float qosmin, float qosmax, int split_ipqueue_s
 #endif
     }	
 #ifdef A3C_RUN
-    printf("\nStarting Worker %d\n", controll);
+//return -controll;
+    //printf("\nStarting Worker %d\n", controll);
     float start_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
-    worker = create_worker(start_state,0,split_ipqueue, split_ipqueue_size);
+    worker = create_worker(start_state,0, iplist, iplist_size);
+    if (worker == NULL) return -3;
 #endif
 
+    return 0;
 }
 
 
-void ml_agent_master_action(int msgsize, int split_ipqueue_size, void ** split_sockets_state, void ** split_sockets, int qosmin, int qosmax, float second,
-float *last_second, int flagState, float RecTotal, float RecMQTotal, float avgRecMQTotal, float RecSparkTotal, int cDELAY, int cTIMEP,
-float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastonespark, float maxth, float measure ) {
+int ml_agent_master_action(int msgsize, int split_ipqueue_size, void ** split_sockets_state, void ** split_sockets, int qosmin, int qosmax, float second, float *last_second, int flagState, float RecTotal, float RecMQTotal, float avgRecMQTotal, float RecSparkTotal, int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP,
+float *global_avg_spark, float *state, float *qosbase, int* vector, float *lastonespark, float maxth, float measure ) {
+
+	int a3c_res = 0;
 
 	if (flagState == 1 && (second != *last_second)) {
 #ifndef A3C_RUN
@@ -94,13 +174,11 @@ float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastone
 		if ((((float)RecTotal*msgsize)/1024/1024)/second > 0){
 		 	*global_avg_spark = (((float)RecTotal*msgsize)/1024/1024)/second;
 		}
-
-
+		
 		// Gabriel's TCC - A Bachpessure-based
 		//RANDOM_ACTION - off  	
 		#ifndef RANDOM_ACTION
 			//saqn_time_csv = fopen("/tmp/SAQN_TIME.csv", "a");
-				
 			clock_t start, end;
 			throughput_var = *global_avg_spark - last_global_avg;
 			/* Get new action from agent */
@@ -125,8 +203,15 @@ float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastone
 			*qosbase = rand() % qosmax + qosmin; // random between 4 and 30
 		#endif
 
-    	if (*qosbase < qosmin) *qosbase = qosmin;
-		if (*qosbase > qosmax ) *qosbase = qosmax-1;
+	    	if (*qosbase < qosmin) *qosbase = qosmin;
+		if (*qosbase > qosmax ) *qosbase = qosmax-1;	
+			
+		if (cTIMEP == 0)
+		{
+			*qosbase = qosmin;
+			vector[0] = 0;
+		}
+		if (*state < qosmin ) vector[0] = 0;
 
 		/*
 		*Engine: static memory's global state orchestration
@@ -150,20 +235,33 @@ float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastone
 				*state= avgRecMQTotal - RecSparkTotal ;
 				*lastonespark=*state;
 			}
-			vector[0] = 0;
-						
+			vector[0] = 0;			
 			
 		}
-			
-		if (cTIMEP == 0)
-		{
-			*qosbase = qosmin;
-			vector[0] = 0;
-		}
-		if (*state < qosmin ) vector[0] = 0;
-
-		printf("++PT %d SD %d Total Delay %d G-AVG %.2f  Max-TH %.2f TH-loss %.2f State %.2f, Global-Limit %.2f \n", cTIMEP, cDELAY,cTIMEP + cDELAY, global_avg_spark, maxth, measure,*state, *qosbase);
 #endif
+#ifdef A3C_RUN
+		a3c_res = a3c_agent_act(msgsize, ttpersocket, ttpersocketsec, input_hanger_size, cDELAY, cTIMEP, *state, qosbase, vector, last_second, second, qosmin, qosmax); 	
+
+		/* Update global state and lastonespark */
+		if ( (avgRecMQTotal - RecSparkTotal) > *qosbase ) {
+			*state = avgRecMQTotal - RecSparkTotal;
+			*lastonespark=*state;
+		}
+		else {
+			if (avgRecMQTotal - RecSparkTotal < 0 ) {
+				*state = 0;
+				*lastonespark = 0;
+			}
+			else {
+
+				*state= avgRecMQTotal - RecSparkTotal ;
+				*lastonespark=*state;
+			}	
+		}
+
+#endif	
+
+		
 
 	}else{
 		*state = *lastonespark;
@@ -176,34 +274,35 @@ float *global_avg_spark, float *state, int *qosbase, int* vector, float *lastone
 
 	for (int i = 1; i<= split_ipqueue_size; i++) {
 		zmq_msg_t msgstate;
-        assert(zmq_msg_init(&msgstate) == 0);
-        char recMaster[3];
-        gcvt(*state, 3, recMaster);
+        	assert(zmq_msg_init(&msgstate) == 0);
+        	char recMaster[3];
+        	gcvt(*state, 3, recMaster);
 		char cat[8];
 		gcvt(*qosbase, 3, cat);
 		strcat(cat,"@");
 		strcat(cat,recMaster);
 		void * butter = malloc(strlen(cat+1));
  		memcpy(butter,cat,strlen(cat));
-        zmq_msg_init_data (&msgstate, butter,strlen(cat), free_data, NULL);
+        	zmq_msg_init_data (&msgstate, butter,strlen(cat), free_data, NULL);
 
-		if(zmq_msg_send(&msgstate, split_sockets_state[i], ZMQ_DONTWAIT) == -1)
-        {
+		if(zmq_msg_send(&msgstate, split_sockets_state[i], ZMQ_DONTWAIT) == -1) {
 			//printf ("error in zmq_connect sent state: %s \n", zmq_strerror (errno));
-        }
-        else
-        {
+        	}
+        	else {
   			//printf(" MQ %d, valor %s \n",i, recMaster);
-        }
-        assert(zmq_msg_close(&msgstate) != -1);
+        	}
+        	assert(zmq_msg_close(&msgstate) != -1);
 	}
-//	printf("  AVG Throughput %.2f Spark %.2f State %.2f - last %.2f  \n", avgRecMQTotal, RecSparkTotal, *state, *lastonespark );
+	
+	if(a3c_res != 0) return a3c_res;
+	return 0;
 }
 
 
-void ml_agent_worker_action(int controll, int msgsize, void ** split_sockets_state, void ** split_sockets, float second,
-int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float state, int *qosbase, int* vector, float *last_second) {
+int ml_agent_worker_action(int controll, int msgsize, void ** split_sockets_state, void ** split_sockets, float second,
+int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float state, float *qosbase, int* vector, float *last_second, int qosmin, int qosmax) {
 
+	int a3c_ret = 0;
 	zmq_msg_t msg;
     assert(zmq_msg_init(&msg) == 0);
 	char SentMaster[15];
@@ -252,25 +351,22 @@ int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIM
 		}
 #else
 		if (second != *last_second) {
-			clock_t start, end;
+			/*clock_t start, end;
 			float local_thpt = ((float)ttpersocketsec*msgsize)/1024/1024/1024;
 			throughput_var = local_thpt - last_local_thpt;
-			/* Get new action from worker */
-			//[local_thpt, l_thpt_var, proc_t, sche_t, input_hanger_size, ttpersocket, l_ready_mem, l_spark_trsh]
-			float curr_env_state[8] = {local_thpt, throughput_var, *cDELAY , *cTIMEP, input_hanger_size, ttpersocket, state, qosbase};	
+			float curr_env_state[8] = {local_thpt, throughput_var, cDELAY , cTIMEP, input_hanger_size, ttpersocket, state, *qosbase};	
 			start = clock();
 			int* actions = worker_infer(worker, curr_env_state);
-    		printf("\nCache action is %d", actions[0]);
-    		printf("\nFlow action is %d", actions[1]);
 			end = clock();
-
-			qosbase = qosbase + actions[0];
+			
+			return -actions[0];
+			*qosbase = *qosbase + actions[0];
 			vector[0] = actions[1] * 1000;
 			double cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
-			//printf("Agent took %f seconds to execute \n", cpu_time_used);
-			//printf("\n Second is: %f || Last second is: %f", second, *last_second);
 			*last_second = second;
-			last_local_thpt = local_thpt;
+			last_local_thpt = local_thpt;*/
+			a3c_ret = a3c_agent_act(msgsize, ttpersocket, ttpersocketsec, input_hanger_size, cDELAY, cTIMEP, state, qosbase, vector, last_second, second, qosmin, qosmax); 	
+		
 		}
 #endif
 				
@@ -279,13 +375,16 @@ int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIM
 	}
 	assert(zmq_msg_close(&msgsw) != -1);
 	
+	if( a3c_ret != 0) return a3c_ret;
+	return 0;
 }
 
 
-void ml_caching (void * API_puller, int msgsize, int msgperbatch, int qosmin, int nb_sending_sockets, char** split_ipqueue, int controll, void ** split_sockets_state, void ** split_sockets, float second,int qosmax,int loss, int window,
+int ml_caching (void * API_puller, int msgsize, int msgperbatch, int qosmin, int nb_sending_sockets, char** split_ipqueue, int controll, void ** split_sockets_state, void ** split_sockets, float second,int qosmax,int loss, int window,
 int ttpersocket, int ttpersocketsec, int *flagState, float *RecMQTotal, float *avgRecMQTotal, float *RecSparkTotal, uint64_t *ackSent, int *RecTotal, int *cREC, int *cDELAY, int *cTIMEP, float *last_second,
-float *global_avg_spark, float *lastonespark, float *state, int *qosbase, int* vector, float maxth, float measure, int input_hanger_size)
+float *global_avg_spark, float *lastonespark, float *state, float *qosbase, int* vector, float maxth, float measure, int input_hanger_size)
 {
+	int status;
 	int split_ipqueue_size=0;
 	vector[0]=0;
   	while (split_ipqueue[split_ipqueue_size] != NULL)
@@ -302,6 +401,7 @@ float *global_avg_spark, float *lastonespark, float *state, int *qosbase, int* v
 	if(zmq_msg_recv(&msg, API_puller, ZMQ_NOBLOCK) == -1) {
 	//printf ("error in zmq_connect: %s \n", zmq_strerror (errno));
 	//assert(errno == EAGAIN);
+		//return -1;
         }
         else {
             *ackSent++;
@@ -347,7 +447,8 @@ float *global_avg_spark, float *lastonespark, float *state, int *qosbase, int* v
                 		{
 			                //	printf ("error in zmq_connect Master Rec: %s \n", zmq_strerror (errno));
 		                 	assert(errno == EAGAIN);
-		                }
+		                	//return -1;
+				}
                 		else
                 		{
                        			void*  data     = zmq_msg_data(&msg);
@@ -377,23 +478,24 @@ float *global_avg_spark, float *lastonespark, float *state, int *qosbase, int* v
 		}
 
 		// MASTER ACTION
-		ml_agent_master_action(msgsize, split_ipqueue_size, split_sockets_state, split_sockets, qosmin, qosmax, second,
-		last_second, *flagState, *RecTotal, *RecMQTotal, *avgRecMQTotal, *RecSparkTotal, *cDELAY, *cTIMEP, 
-		global_avg_spark, state, qosbase, vector, lastonespark, maxth, measure);
-
-	} else	if (controll > 0) {
+		status = ml_agent_master_action(msgsize, split_ipqueue_size, split_sockets_state, split_sockets, qosmin, qosmax, second, last_second, *flagState, *RecTotal, *RecMQTotal, *avgRecMQTotal, *RecSparkTotal, ttpersocket, ttpersocketsec, input_hanger_size, *cDELAY, *cTIMEP, global_avg_spark, state, qosbase, vector, lastonespark, maxth, measure);
+		if (status != 0) return status;
+	
+	} else if (controll > 0) {
 		// WORKER ACTION
-		ml_agent_worker_action(controll, msgsize, split_sockets_state, split_sockets, second, ttpersocket, ttpersocketsec,
-		input_hanger_size, *cDELAY, *cTIMEP, *state, qosbase, vector, last_second);
-	}     
+		status = ml_agent_worker_action(controll, msgsize, split_sockets_state, split_sockets, second, ttpersocket, ttpersocketsec, input_hanger_size, *cDELAY, *cTIMEP, *state, qosbase, vector, last_second, qosmin, qosmax);
+		if (status != 0) return status;
+	}
+
+   	return 0;	
 }	
 
 
-void ml_agent_finish(int controll) {
-    
+int ml_agent_finish(int controll) {
+
     /* Close Agent */
 #ifdef A3C_RUN
-	printf("\nClosing Worker");
+	//printf("\nClosing Worker");
  	float last_state[8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     	worker_finish(worker, last_state);
 #endif	
@@ -405,7 +507,7 @@ void ml_agent_finish(int controll) {
 		//saqn_time_csv = fopen("/tmp/SAQN_TIME.csv", "a");
 		
 		clock_t start, end;
-		printf("\nClosing Agent");
+		//printf("\nClosing Agent");
 		float last_state[8] = {0.0, 0.0, 0.0, 0.0, 0, 0, 0, 0};
 		start = clock();
 		finish(agent, last_state);
@@ -427,7 +529,55 @@ void ml_agent_finish(int controll) {
 	}
 #endif
 
+	return 0;
 }
+
+
+
+/*
+ * Calls the a3c agent to perform an action
+ */
+int a3c_agent_act(int msgsize, int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float state, float *qosbase, int* vector, float *last_second, float second, int qosmin, int qosmax) {
+	clock_t start, end;
+	float local_thpt = ((float)ttpersocketsec*msgsize)/1024/1024/1024;
+	throughput_var = local_thpt - last_local_thpt;
+	/* Get new action from agent */
+	//[local_thpt, l_thpt_var, proc_t, sche_t, input_hanger_size, ttpersocket, l_ready_mem, l_spark_trsh]
+	float curr_env_state[8] = {local_thpt, throughput_var, cDELAY , cTIMEP, input_hanger_size, ttpersocket, state, *qosbase};	
+	//float dummy_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
+	start = clock();
+	int* actions = worker_infer(worker, curr_env_state);
+    	end = clock();
+	
+	//return -actions[0];
+	//return -2;
+	double cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
+
+	//Cache action is actions[0]
+    	//Flow action is actions[1]			
+	*qosbase = *qosbase + actions[0];
+	vector[0] = actions[1] * 1000;
+	*last_second = second;
+	last_local_thpt = local_thpt;
+
+
+	if (*qosbase < qosmin) *qosbase = qosmin;
+	if (*qosbase > qosmax ) *qosbase = qosmax-1;	
+			
+	if (cTIMEP == 0) {
+		*qosbase = qosmin;
+		vector[0] = 0;
+	}
+	if (state < qosmin ) vector[0] = 0;
+
+
+	//return 0;
+	return actions[0];
+}
+
+
+
+
 
 void saqn_init() {}
 void saqn_master() {}

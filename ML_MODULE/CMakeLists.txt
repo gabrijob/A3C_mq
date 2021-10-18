@@ -62,6 +62,7 @@ target_link_libraries(ml_module ${ZeroMQ_LIBRARY})
 
 target_include_directories(ml_module PRIVATE include)
 target_include_directories(ml_module PRIVATE src)
+target_include_directories(ml_module PUBLIC api)
 
 if(MPI_COMPILE_FLAGS)
 	set_target_properties(ml_module PROPERTIES 
