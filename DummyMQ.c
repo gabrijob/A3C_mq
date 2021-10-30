@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
 
     printf("\nStarting Worker");
     float start_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
-    PyObject* worker = create_worker(start_state,0, ip_list, 1);
+    PyObject* worker = create_worker(start_state,0, ip_list, 1, 50, 1);
 
     printf("\nGetting first action");
     //float middle_state[8] = {30.0, 5.3, 5.3, 10, 8, 8, 77, 7.7};

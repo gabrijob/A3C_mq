@@ -28,7 +28,7 @@ delay_rate = 4000 # T steps
 max_global_steps = 100 #500
 
 GAMMA = 0.9 #0.999
-ENTROPY_BETA = 0.5 #0.01
+ENTROPY_BETA = 0.1 #0.01
 actor_alpha = 0.01   
 critic_alpha = 0.01   
 actor_hidden = 64#4 #128 #200
@@ -182,9 +182,11 @@ class SparkMQEnv(object): # local only
         self.max_sched_t = 30000
         self.min_sched_t = 0
 
-        # in GB/s
-        self.max_thpt = 1500
+        # in GB/s per executor
+        self.max_thpt = 900
         self.min_thpt = 0
+
+        self.r_history = []
 
     def calc_reward(self, state):
         thpt_avg = state[0]
@@ -195,16 +197,24 @@ class SparkMQEnv(object): # local only
         cache_normalized = 2 * (self.maxqos - cache) / (self.maxqos - self.minqos) -1 # normalized between [-1,1]
         sched_t_normalized =2 * (self.max_sched_t - sched_t) / (self.max_sched_t - self.min_sched_t) -1 # normalized between [-1,1]
 
-        reward =  thpt_normalized + cache_normalized + sched_t_normalized
+        reward =  100 * (thpt_normalized + cache_normalized + sched_t_normalized)
+        #self.r_history.append([thpt_normalized, cache_normalized, sched_t_normalized, reward])
+        self.r_history.append([thpt_normalized, cache_normalized, sched_t_normalized, reward])
+
         return reward 
 
+    def reset_rewards_history(self):
+        self.r_history = []
+
+    def get_rewards_history(self):
+        return self.r_history
 
 ##########################################################################################
 # Worker Class
 ##########################################################################################
 class Worker(object): # local only
-    def __init__(self, name, globalAC, GLOBAL_EP, GLOBAL_RUNNING_R, sess, state):
-        self.env = SparkMQEnv()
+    def __init__(self, name, globalAC, GLOBAL_EP, GLOBAL_RUNNING_R, sess, state, qosmax, qosmin):
+        self.env = SparkMQEnv(upper_limit=qosmax, lower_limit=qosmin)
         self.name = name
         self.AC = ACNet(name, sess, globalAC)
         self.sess = sess
@@ -214,11 +224,10 @@ class Worker(object): # local only
         self.t = 0
         self.s = state
         self.start_episode()
-
+    
         with open(REWARD_FILE.format(self.name), 'w') as f:
-            writer = csv.writer(f)
-            writer.writerow(['episode', 'reward'])
-            
+            writer = csv.writer(f)        
+            writer.writerow(['THPT_R', 'CACHE_R', 'SCHE_T_R', 'REWARD'])
 
     def change_state(self, state, done):
         #s_, r, done, info = self.env.step(a)
@@ -303,8 +312,10 @@ class Worker(object): # local only
         # Save episode reward on csv file
         with open(REWARD_FILE.format(self.name), 'a') as f:
             writer = csv.writer(f)
-            writer.writerow([self.T, self.ep_r])
-         
+            for row in self.env.get_rewards_history():
+                writer.writerow(row) 
+
+        
 
     def start_episode(self):
         #self.s = self.env.reset()
@@ -313,6 +324,7 @@ class Worker(object): # local only
         self.done = False
         self.buffer_s, self.buffer_a, self.buffer_r, self.buffer_done = [], [], [], []
         self.AC.pull_global()
+        self.env.reset_rewards_history()
 
             
     def discount_rewards(self, r, gamma, running_add):
@@ -441,7 +453,7 @@ def parameter_server(max_exec_time, ips):
     print("Parameter server: ended...")
 
 class WorkerAPI(): 
-    def __init__(self, worker_n, start_state, ips):
+    def __init__(self, worker_n, start_state, ips, qosmax, qosmin):
         #tf.reset_default_graph()
         tf.compat.v1.disable_eager_execution()
 
@@ -474,7 +486,7 @@ class WorkerAPI():
             time.sleep(1.0)
         print("Worker %d: variables initialized" % worker_n)
         
-        self.w = Worker(str(worker_n), GLOBAL_AC, GLOBAL_EP, GLOBAL_RUNNING_R, self.sess, start_state) 
+        self.w = Worker(str(worker_n), GLOBAL_AC, GLOBAL_EP, GLOBAL_RUNNING_R, self.sess, start_state, qosmax, qosmin) 
         print("Worker %d: created" % worker_n)
         
         self.sess.run(tf.compat.v1.global_variables_initializer()) # got to initialize after Worker creation
@@ -499,7 +511,7 @@ class WorkerAPI():
 # Cython API
 ##########################################################################################
 
-cdef public object create_worker(float* start_state, int worker_n, char** ip_list, int ip_count):
+cdef public object create_worker(float* start_state, int worker_n, char** ip_list, int ip_count, int qosmax, int qosmin):
     state = []
     for i in range(OBS_SIZE):
         state.append(start_state[i])
@@ -509,7 +521,7 @@ cdef public object create_worker(float* start_state, int worker_n, char** ip_lis
         ips.append(ip_list[i])
 
     
-    return WorkerAPI(worker_n, state, ips)
+    return WorkerAPI(worker_n, state, ips, qosmax, qosmin)
 
 
 cdef public int* worker_infer(object agent , float* new_state):

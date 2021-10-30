@@ -19,7 +19,7 @@
   #define DL_IMPORT(_T) _T
 #endif
 
-__PYX_EXTERN_C PyObject *create_worker(float *, int, char **, int);
+__PYX_EXTERN_C PyObject *create_worker(float *, int, char **, int, int, int);
 __PYX_EXTERN_C int *worker_infer(PyObject *, float *);
 __PYX_EXTERN_C void worker_finish(PyObject *, float *);
 __PYX_EXTERN_C PyObject *parameter_server_proc(float, char **, int);

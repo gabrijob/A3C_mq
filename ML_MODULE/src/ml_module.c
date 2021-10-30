@@ -153,7 +153,7 @@ int ml_agent_init(int controll, float qosmin, float qosmax, int split_ipqueue_si
 //return -controll;
     //printf("\nStarting Worker %d\n", controll);
     float start_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
-    worker = create_worker(start_state,0, iplist, iplist_size);
+    worker = create_worker(start_state,0, iplist, iplist_size, qosmax, qosmin);
     if (worker == NULL) return -3;
 #endif
 
@@ -539,11 +539,11 @@ int ml_agent_finish(int controll) {
  */
 int a3c_agent_act(int msgsize, int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float state, float *qosbase, int* vector, float *last_second, float second, int qosmin, int qosmax) {
 	clock_t start, end;
-	float local_thpt = ((float)ttpersocketsec*msgsize)/1024/1024/1024;
+	float local_thpt = ((float)ttpersocket*msgsize)/1024/1024/second;
 	throughput_var = local_thpt - last_local_thpt;
 	/* Get new action from agent */
 	//[local_thpt, l_thpt_var, proc_t, sche_t, input_hanger_size, ttpersocket, l_ready_mem, l_spark_trsh]
-	float curr_env_state[8] = {local_thpt, throughput_var, cDELAY , cTIMEP, input_hanger_size, ttpersocket, state, *qosbase};	
+	float curr_env_state[8] = {local_thpt, throughput_var, cDELAY , cTIMEP, input_hanger_size, ttpersocketsec, state, *qosbase};	
 	//float dummy_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
 	start = clock();
 	int* actions = worker_infer(worker, curr_env_state);
