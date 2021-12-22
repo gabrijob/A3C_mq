@@ -27,7 +27,7 @@ max_global_episodes = 5000#5 #500
 delay_rate = 4000 # T steps
 max_global_steps = 100 #500
 
-GAMMA = 0.9 #0.999
+GAMMA = 0.990 #0.999
 ENTROPY_BETA = 0.1 #0.01
 actor_alpha = 0.01   
 critic_alpha = 0.01   
@@ -179,7 +179,7 @@ class SparkMQEnv(object): # local only
         self.minqos = lower_limit
 
         # in seconds
-        self.max_sched_t = 30000
+        self.max_sched_t = 20000
         self.min_sched_t = 0
 
         # in GB/s per executor
@@ -188,10 +188,10 @@ class SparkMQEnv(object): # local only
 
         self.r_history = []
 
-    def calc_reward(self, state):
+    def calc_reward(self, state, last_cache_action, last_flow_action):
         thpt_avg = state[0]
         cache = state[7]
-        sched_t = state [3]
+        sched_t = state [2]
 
         thpt_normalized = 2 * (thpt_avg - self.min_thpt) / (self.max_thpt - self.min_thpt) -1 # normalized between [-1,1]
         cache_normalized = 2 * (self.maxqos - cache) / (self.maxqos - self.minqos) -1 # normalized between [-1,1]
@@ -199,7 +199,16 @@ class SparkMQEnv(object): # local only
 
         reward =  100 * (thpt_normalized + cache_normalized + sched_t_normalized)
         #self.r_history.append([thpt_normalized, cache_normalized, sched_t_normalized, reward])
-        self.r_history.append([thpt_normalized, cache_normalized, sched_t_normalized, reward])
+        self.r_history.append([
+            str(round(last_cache_action,2)), 
+            str(round(last_flow_action,2)), 
+            str(round(thpt_avg,2)),
+            str(round(cache, 2)),
+            str(round(sched_t,2)),
+            str(round(thpt_normalized,2)) ,
+            str(round(cache_normalized,2)) ,
+            str(round(sched_t_normalized,2)),
+            str(round(reward,2))])
 
         return reward 
 
@@ -208,6 +217,7 @@ class SparkMQEnv(object): # local only
 
     def get_rewards_history(self):
         return self.r_history
+
 
 ##########################################################################################
 # Worker Class
@@ -227,7 +237,7 @@ class Worker(object): # local only
     
         with open(REWARD_FILE.format(self.name), 'w') as f:
             writer = csv.writer(f)        
-            writer.writerow(['THPT_R', 'CACHE_R', 'SCHE_T_R', 'REWARD'])
+            writer.writerow(['CACHE_A','FLOW_A', 'THPT_AVG', 'CACHE', 'SCHED_T', 'THPT_R', 'CACHE_R', 'SCHE_T_R', 'REWARD'])
 
     def change_state(self, state, done):
         #s_, r, done, info = self.env.step(a)
@@ -240,7 +250,7 @@ class Worker(object): # local only
             if not done:
                 self.start_episode()
         
-        self.r = self.env.calc_reward(state)
+        self.r = self.env.calc_reward(state, self.last_cache_action, self.last_flow_action)
         self.ep_r += self.r
         self.buffer_s.append(self.s)
         self.buffer_r.append(self.r)
@@ -248,7 +258,7 @@ class Worker(object): # local only
         self.s = np.array(state)
         #self.t += 1
 
-        #if self.t > max_global_steps && not done:
+        #if self.t > max_global_steps and not done:
             #self.end_episode()
             #self.start_episode()
 
@@ -262,6 +272,9 @@ class Worker(object): # local only
         cache_action = action % 3 - 1
         flow_action = 1 if action > 2 else 0
         
+        self.last_cache_action = cache_action
+        self.last_flow_action = flow_action
+
         return (cache_action, flow_action)
         
 
@@ -325,7 +338,8 @@ class Worker(object): # local only
         self.buffer_s, self.buffer_a, self.buffer_r, self.buffer_done = [], [], [], []
         self.AC.pull_global()
         self.env.reset_rewards_history()
-
+        self.last_cache_action = 0
+        self.last_flow_action = 1
             
     def discount_rewards(self, r, gamma, running_add):
       """Take 1D float array of rewards and compute discounted reward """

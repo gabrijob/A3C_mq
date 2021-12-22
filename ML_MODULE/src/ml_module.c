@@ -153,7 +153,7 @@ int ml_agent_init(int controll, float qosmin, float qosmax, int split_ipqueue_si
 //return -controll;
     //printf("\nStarting Worker %d\n", controll);
     float start_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
-    worker = create_worker(start_state,0, iplist, iplist_size, qosmax, qosmin);
+    worker = create_worker(start_state, controll, iplist, iplist_size, qosmax, qosmin);
     if (worker == NULL) return -3;
 #endif
 
@@ -275,15 +275,27 @@ float *global_avg_spark, float *state, float *qosbase, int* vector, float *lasto
 	for (int i = 1; i<= split_ipqueue_size; i++) {
 		zmq_msg_t msgstate;
         	assert(zmq_msg_init(&msgstate) == 0);
-        	char recMaster[3];
+        	/* Add delay variables on message */		
+		char cDELAY_msg[9];
+		char cTIMEP_msg[9];
+		sprintf(cDELAY_msg, "%d",cDELAY);
+		sprintf(cTIMEP_msg, "%d",cTIMEP);
+		
+		char recMaster[3];
         	gcvt(*state, 3, recMaster);
-		char cat[8];
+		char cat[28];
 		gcvt(*qosbase, 3, cat);
 		strcat(cat,"@");
 		strcat(cat,recMaster);
-		void * butter = malloc(strlen(cat+1));
- 		memcpy(butter,cat,strlen(cat));
-        	zmq_msg_init_data (&msgstate, butter,strlen(cat), free_data, NULL);
+
+		strcat(cat,"@");
+		strcat(cat,cDELAY_msg);
+		strcat(cat,"@");
+		strcat(cat,cTIMEP_msg);
+
+		void * buffer = malloc(strlen(cat+1));
+ 		memcpy(buffer,cat,strlen(cat));
+        	zmq_msg_init_data (&msgstate, buffer,strlen(cat), free_data, NULL);
 
 		if(zmq_msg_send(&msgstate, split_sockets_state[i], ZMQ_DONTWAIT) == -1) {
 			//printf ("error in zmq_connect sent state: %s \n", zmq_strerror (errno));
@@ -325,58 +337,46 @@ int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIM
     else {
         void*  data_adj      = zmq_msg_data(&msgsw);
         size_t adj_size = zmq_msg_size(&msgsw);
-		char*  adj_string = malloc(adj_size+1);
+	char*  adj_string = malloc(adj_size+1);
         memcpy(adj_string, data_adj, adj_size);
         adj_string[adj_size] = 0x00;
-		char * dados[2];
-		char * token = strtok(adj_string, "@");
+	char * dados[4];
+	char * token = strtok(adj_string, "@");
 		
-		int si = 0;
+	int si = 0;
         while( token != NULL ) {
-			dados[si] = token;
-			//printf("d[%d] %s \n", si,dados[si]);
-			token = strtok(NULL, "@");
-            si++;
-		}
+		dados[si] = token;
+		//printf("d[%d] %s \n", si,dados[si]);
+		token = strtok(NULL, "@");
+        	si++;
+	}
 
-		float cslavestate = atof(dados[1]);
+	float cslavestate = atof(dados[1]);
+	float qosslave = atof(dados[0]);
 #ifndef A3C_RUN		
-		//printf("\nNot A3C worker\n");
-		float qosslave = atof(dados[0]);
-		if (  cslavestate  >=  qosslave ) {
-			vector[0] = 1000;
-		}
-		else {
-			vector[0] = 0;
-		}
+	//printf("\nNot A3C worker\n");
+	if (  cslavestate  >=  qosslave ) {
+		vector[0] = 1000;
+	}
+	else {
+		vector[0] = 0;
+	}
 #else
-		if (second != *last_second) {
-			/*clock_t start, end;
-			float local_thpt = ((float)ttpersocketsec*msgsize)/1024/1024/1024;
-			throughput_var = local_thpt - last_local_thpt;
-			float curr_env_state[8] = {local_thpt, throughput_var, cDELAY , cTIMEP, input_hanger_size, ttpersocket, state, *qosbase};	
-			start = clock();
-			int* actions = worker_infer(worker, curr_env_state);
-			end = clock();
-			
-			return -actions[0];
-			*qosbase = *qosbase + actions[0];
-			vector[0] = actions[1] * 1000;
-			double cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
-			*last_second = second;
-			last_local_thpt = local_thpt;*/
-			a3c_ret = a3c_agent_act(msgsize, ttpersocket, ttpersocketsec, input_hanger_size, cDELAY, cTIMEP, state, qosbase, vector, last_second, second, qosmin, qosmax); 	
+	cDELAY = atoi(dados[2]);
+	cTIMEP = atoi(dados[3]);
+	if (second != *last_second) {
+		a3c_ret = a3c_agent_act(msgsize, ttpersocket, ttpersocketsec, input_hanger_size, cDELAY, cTIMEP, cslavestate, qosbase, vector, last_second, second, qosmin, qosmax); 	
 		
-		}
+    	}
 #endif
 				
-		//printf("control %d qos %.2f state %.2f - [1] %s \n",controll, qosslave, cslavestate,dados[1] );
-		free(adj_string);
-	}
-	assert(zmq_msg_close(&msgsw) != -1);
+    //printf("control %d qos %.2f state %.2f - [1] %s \n",controll, qosslave, cslavestate,dados[1] );
+    free(adj_string);
+    }
+    assert(zmq_msg_close(&msgsw) != -1);
 	
-	if( a3c_ret != 0) return a3c_ret;
-	return 0;
+    if( a3c_ret != 0) return a3c_ret;
+    return 0;
 }
 
 
@@ -404,10 +404,10 @@ float *global_avg_spark, float *lastonespark, float *state, float *qosbase, int*
 		//return -1;
         }
         else {
-            *ackSent++;
-            void*  data      = zmq_msg_data(&msg);
-            size_t data_size = zmq_msg_size(&msg);
-            char*  rebuilt_string = malloc(data_size+1);
+            	*ackSent++;
+            	void*  data      = zmq_msg_data(&msg);
+            	size_t data_size = zmq_msg_size(&msg);
+        	char*  rebuilt_string = malloc(data_size+1);
         	memcpy(rebuilt_string, data, data_size);
         	rebuilt_string[data_size] = 0x00;
         	char * dados[3]; 
@@ -415,18 +415,18 @@ float *global_avg_spark, float *lastonespark, float *state, float *qosbase, int*
         	// loop through the string to extract all other tokens
         	int i = 0;
         	while( token != NULL ) {
-                dados[i]=       token;
-                token = strtok(NULL, ";");
-                i++;
+                	dados[i]=       token;
+                	token = strtok(NULL, ";");
+                	i++;
         	}
-			free(rebuilt_string);
+		free(rebuilt_string);
         	assert(zmq_msg_close(&msg) != -1);
         	*RecTotal += atoi(dados[1]);
         	*cREC  = atoi(dados[1]);
-			*RecSparkTotal = ((float)*RecTotal*msgsize)/1024/1024/1024;	
-			*cDELAY= atoi(dados[3]);
-			*cTIMEP= atoi(dados[2]);
-   		}
+		*RecSparkTotal = ((float)*RecTotal*msgsize)/1024/1024/1024;	
+		*cDELAY= atoi(dados[3]);
+		*cTIMEP= atoi(dados[2]);
+   	}
 
    		*RecMQTotal = ((float)ttpersocket*msgsize)/1024/1024/1024;
    		if(split_ipqueue_size == 0) {
@@ -538,11 +538,26 @@ int ml_agent_finish(int controll) {
  * Calls the a3c agent to perform an action
  */
 int a3c_agent_act(int msgsize, int ttpersocket, int ttpersocketsec, int input_hanger_size, int cDELAY, int cTIMEP, float state, float *qosbase, int* vector, float *last_second, float second, int qosmin, int qosmax) {
+	
+	/* Check arguments validity */
+	if(ttpersocket<0 || msgsize<0/* || cDELAY<0 || cTIMEP<0 || input_hanger_size<0 || ttpersocketsec<0 || state<0 || *qosbase<0*/) {
+		return -2;
+	} 
+	if(cDELAY<0 || cTIMEP<0) {
+		return -3;
+	} 
+	if( input_hanger_size<0 || ttpersocketsec<0 ) {
+		return -4;
+	}
+	if( state<0 /*|| *qosbase<0*/) {
+		return -5;
+	}
+
 	clock_t start, end;
 	float local_thpt = ((float)ttpersocket*msgsize)/1024/1024/second;
 	throughput_var = local_thpt - last_local_thpt;
 	/* Get new action from agent */
-	//[local_thpt, l_thpt_var, proc_t, sche_t, input_hanger_size, ttpersocket, l_ready_mem, l_spark_trsh]
+	//[local_thpt, l_thpt_var, sche_t, proc_t, input_hanger_size, ttpersocket, l_ready_mem, l_spark_trsh]
 	float curr_env_state[8] = {local_thpt, throughput_var, cDELAY , cTIMEP, input_hanger_size, ttpersocketsec, state, *qosbase};	
 	//float dummy_state[8] = {0.0,0.0,0.0,0,0,0,0,0};
 	start = clock();
@@ -568,11 +583,10 @@ int a3c_agent_act(int msgsize, int ttpersocket, int ttpersocketsec, int input_ha
 		*qosbase = qosmin;
 		vector[0] = 0;
 	}
-	if (state < qosmin ) vector[0] = 0;
+	if (state < *qosbase ) vector[0] = 0;
 
 
-	//return 0;
-	return actions[0];
+	return 0;
 }
 
 
