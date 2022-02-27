@@ -2441,7 +2441,7 @@ static PyObject *__pyx_int_15;
 static PyObject *__pyx_int_50;
 static PyObject *__pyx_int_64;
 static PyObject *__pyx_int_100;
-static PyObject *__pyx_int_900;
+static PyObject *__pyx_int_300;
 static PyObject *__pyx_int_4000;
 static PyObject *__pyx_int_5000;
 static PyObject *__pyx_int_20000;
@@ -8995,15 +8995,15 @@ static PyObject *__pyx_pf_12A3CProcesses_10SparkMQEnv___init__(CYTHON_UNUSED PyO
   /* "A3CProcesses.pyx":186
  * 
  *         # in GB/s per executor
- *         self.max_thpt = 900             # <<<<<<<<<<<<<<
+ *         self.max_thpt = 300             # <<<<<<<<<<<<<<
  *         self.min_thpt = 0
  * 
  */
-  if (__Pyx_PyObject_SetAttrStr(__pyx_v_self, __pyx_n_s_max_thpt, __pyx_int_900) < 0) __PYX_ERR(0, 186, __pyx_L1_error)
+  if (__Pyx_PyObject_SetAttrStr(__pyx_v_self, __pyx_n_s_max_thpt, __pyx_int_300) < 0) __PYX_ERR(0, 186, __pyx_L1_error)
 
   /* "A3CProcesses.pyx":187
  *         # in GB/s per executor
- *         self.max_thpt = 900
+ *         self.max_thpt = 300
  *         self.min_thpt = 0             # <<<<<<<<<<<<<<
  * 
  *         self.r_history = []
@@ -18919,7 +18919,7 @@ static CYTHON_SMALL_CODE int __Pyx_InitGlobals(void) {
   __pyx_int_50 = PyInt_FromLong(50); if (unlikely(!__pyx_int_50)) __PYX_ERR(0, 1, __pyx_L1_error)
   __pyx_int_64 = PyInt_FromLong(64); if (unlikely(!__pyx_int_64)) __PYX_ERR(0, 1, __pyx_L1_error)
   __pyx_int_100 = PyInt_FromLong(100); if (unlikely(!__pyx_int_100)) __PYX_ERR(0, 1, __pyx_L1_error)
-  __pyx_int_900 = PyInt_FromLong(900); if (unlikely(!__pyx_int_900)) __PYX_ERR(0, 1, __pyx_L1_error)
+  __pyx_int_300 = PyInt_FromLong(300); if (unlikely(!__pyx_int_300)) __PYX_ERR(0, 1, __pyx_L1_error)
   __pyx_int_4000 = PyInt_FromLong(4000); if (unlikely(!__pyx_int_4000)) __PYX_ERR(0, 1, __pyx_L1_error)
   __pyx_int_5000 = PyInt_FromLong(5000); if (unlikely(!__pyx_int_5000)) __PYX_ERR(0, 1, __pyx_L1_error)
   __pyx_int_20000 = PyInt_FromLong(20000L); if (unlikely(!__pyx_int_20000)) __PYX_ERR(0, 1, __pyx_L1_error)

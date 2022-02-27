@@ -183,7 +183,7 @@ class SparkMQEnv(object): # local only
         self.min_sched_t = 0
 
         # in GB/s per executor
-        self.max_thpt = 900
+        self.max_thpt = 300
         self.min_thpt = 0
 
         self.r_history = []

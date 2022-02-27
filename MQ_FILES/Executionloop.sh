@@ -675,22 +675,21 @@ saqn1(){
 	mq="message_queue_0"
 	#qosmax=4
 	loss=5 #no use 
-	qosmin=1 #no use
+	qosmin=8 #no use
 	rep=1
-	./prepare_env.sh 8 4 9 $interface $infiniband
+	./prepare_env.sh 8 8 9 $interface $infiniband
 	#                name="BP_8-8-9_static-$qosmax-eno"
-	sockets=2
+	sockets=1
 	#  1 to ib0, "" to eno
 	infiniband=""
 	#interfaces at dahu cluser are ib0 or enp24s0f0
 	n=1;
 	#for app in "GlobalSUMServer" "GlobalHistogramServer" "StatelessSUMServer"; do
-	for app in "StatelessSUMServer"; do	
-	#for app in "SUMServer"; do
+	for app in "SUMServer"; do
 		for i in 32; do
 		#for i in 5 17 45; do
 			qosmax=$i
-			name="BP_8-4-9_saqn-$mq-eno-untrained-2h"
+			name="BP_8-8-9_saqn-$mq-eno-untrained-1h-qosmin8"
 			while [ $n -le $rep ]; do
 				./start_apps.sh $qosmin $app '--conf "spark.driver.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/DRIVER.log" --conf "spark.executor.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/EXECUTOR.log"' $sockets "" $qosmax $loss $mq
 				sleep 1
@@ -831,9 +830,9 @@ a3c1(){
 	mq="message_queue_4"
 	#qosmax=4
 	loss=5 #no use 
-	qosmin=1 #no use
+	qosmin=8 #no use
 	rep=1
-	./prepare_env.sh 8 1 9 $interface $infiniband
+	./prepare_env.sh 8 8 9 $interface $infiniband
 	#                name="BP_8-8-9_static-$qosmax-eno"
 	sockets=1
 	#  1 to ib0, "" to eno
@@ -845,7 +844,7 @@ a3c1(){
 		for i in 32; do
 		#for i in 5 17 45; do
 			qosmax=$i
-			name="BP_8-1-9_saqn-$mq-eno-A3C-2h"
+			name="BP_8-8-9_a3c-$mq-eno-1h-qosmin8-hard-learning-1.0"
 			while [ $n -le $rep ]; do
 				./start_apps.sh $qosmin $app '--conf "spark.driver.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/DRIVER.log" --conf "spark.executor.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/EXECUTOR.log"' $sockets "" $qosmax $loss $mq
 				sleep 1
@@ -865,7 +864,7 @@ a3c1(){
 	done
 }
 
-
+#saqn1
 a3c1
 #saqn1
 #saqn2

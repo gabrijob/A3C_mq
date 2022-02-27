@@ -384,7 +384,7 @@ int ml_caching (void * API_puller, int msgsize, int msgperbatch, int qosmin, int
 int ttpersocket, int ttpersocketsec, int *flagState, float *RecMQTotal, float *avgRecMQTotal, float *RecSparkTotal, uint64_t *ackSent, int *RecTotal, int *cREC, int *cDELAY, int *cTIMEP, float *last_second,
 float *global_avg_spark, float *lastonespark, float *state, float *qosbase, int* vector, float maxth, float measure, int input_hanger_size)
 {
-	int status;
+	int status=0;
 	int split_ipqueue_size=0;
 	vector[0]=0;
   	while (split_ipqueue[split_ipqueue_size] != NULL)

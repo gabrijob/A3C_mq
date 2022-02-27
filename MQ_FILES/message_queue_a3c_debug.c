@@ -1,8 +1,6 @@
 #include "message_queue.h"
 #include "string.h"
 
-#define SAQN_RUN
-
 
 char * ack_str;
 char * nack_str;
@@ -11,8 +9,8 @@ char connect_string[100];
 zmq_msg_t ACK;
 zmq_msg_t NACK;
 
-int ttpersocket;
-int ttpersocketsec;
+int ttpersocket=-1;
+int ttpersocketsec=-1;
 int* sockets_status;
 int* sockets_volume;
 int* sockets_sent_sec;
@@ -24,12 +22,12 @@ long long* sockets_accumulator_stuck;
 long long* sockets_stuck_start;
 int contup=1;
 int RecTotal = 0;
-int cREC = 0;
-int cDELAY = 0; 
-int cTIMEP = 0; 
+int cREC = -1;
+int cDELAY = -1; 
+int cTIMEP = -1; 
 float maxth = 0;
 uint64_t ackSent=0;
-float state=0;
+float state=-1;
 int flagState=0;
 float RecMQTotal = 0;
 float RecSparkTotal = 0;
@@ -38,7 +36,7 @@ float prev = 0;
 float lastonespark=0;
 float avgRecMQTotal=0;
 float last_state = 0;
-float qosbase = 0;
+float qosbase = -1;
 float global_avg_spark=0;
 float measure =0;
 float last_measure=1;
@@ -218,13 +216,23 @@ int write_message_to_consumer(int msgperbatch, int msgsize, void** items, int i,
         int v = zmq_msg_size(&output_message);
         sockets_volume[i] += v;
 	//vector[0]=0;
-       	printf("Callig ml_caching\n");
-	ml_caching (API_puller, msgsize, msgperbatch, qosmin, nb_sending_sockets, split_ipqueue, controll, split_sockets_state, split_sockets, second, qosmax, loss, window,
- 		ttpersocket,  ttpersocketsec,  &flagState,  &RecMQTotal, &avgRecMQTotal, &RecSparkTotal, &ackSent, &RecTotal, &cREC, &cDELAY, &cTIMEP, &last_second,
-		&global_avg_spark, &lastonespark, &state, (int *) &qosbase, vector,  maxth, measure, input_hanger_size);
+	//if ( second != last_second ) {
+	//	printf("++PT %d SD %d Total Delay %d G-AVG %.2f  Max-TH %.2f TH-loss %.2f State %.2f, Global-Limit %.2f \n", cTIMEP, cDELAY,cTIMEP + cDELAY, global_avg_spark, maxth, measure,state, qosbase);
+	//}
 
- 
-       	/** once this socket has sent enough data, it will need to send
+	int ml_status = ml_caching (API_puller, msgsize, msgperbatch, qosmin, nb_sending_sockets, split_ipqueue, controll, split_sockets_state, split_sockets, second, qosmax, loss, window,
+ 		ttpersocket,  ttpersocketsec,  &flagState,  &RecMQTotal, &avgRecMQTotal, &RecSparkTotal, &ackSent, &RecTotal, &cREC, &cDELAY, &cTIMEP, &last_second,
+		&global_avg_spark, &lastonespark, &state,  &qosbase, vector,  maxth, measure, input_hanger_size);
+
+	//if (ml_status != 0) printf("RETURN FROM ML CACHING(%d)\n", ml_status);
+	if (ml_status < 0 && controll > 0) {
+		printf("Error on ml_caching (%d) @%d \n", ml_status, controll);
+ 	}/* else if (ml_status == 0) {
+		printf("ML caching OK(%d)\n", ml_status);
+	}*/
+
+
+	/** once this socket has sent enough data, it will need to send
          * the last message part and change the socket status
          */
 if (vector[0] == 0){
@@ -575,8 +583,16 @@ void do_queue(int msgperbatch,int max_effective_data_to_send_per_window, int dur
     }
 
     /* Start ML Agent */
-    ml_agent_init(controll, qosmin, qosmax, split_ipqueue_size, split_ipqueue, duration);
-
+    printf("Starting ML Agent\n");
+    int status = ml_agent_init(controll, qosmin, qosmax, split_ipqueue_size, split_ipqueue, duration);
+    if (status == 0) {
+    	printf("Agent started OK\n");
+    } else {
+   	printf("Agent not started correctly (%d)", status);
+	exit(1);
+    } 
+    printf("Executor %d agent initialized %d times.\n", controll, ml_init_counts[controll]);
+   
     // Time tracking to work only for Duration
     int keepup = 1;
     long long start_time     = current_timestamp();
@@ -766,6 +782,7 @@ int main(int argc, char** argv)
 	qosbase=(float) qosmin;
 	uint64_t max_effective_data_to_send_per_window = msgperbatch * msgsize;
 
+	ml_agent_import(argv[0], argc);
 
 	do_queue(msgperbatch,max_effective_data_to_send_per_window, duration, sending_port, receiving_port, io_threads, nb_sending_sockets, msgsize, threshold, qosmin,split_ipqueue, controll,qosmax,loss,window);
     return 0;
