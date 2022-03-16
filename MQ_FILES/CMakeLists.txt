@@ -48,16 +48,16 @@ link_directories("/usr/local/lib")
 set (libraries	ml_module ${libraries} ${ZeroMQ_LIBRARY})
 
 # A3C EXECUTABLE
-add_executable (message_queue_4 message_queue_a3c_debug.c)
+add_executable (message_queue_ml message_queue_ml.c)
 
-target_link_libraries(message_queue_4 ${libraries})
+target_link_libraries(message_queue_ml ${libraries})
 
 if(MPI_COMPILE_FLAGS)
-	set_target_properties(message_queue_4 PROPERTIES
+	set_target_properties(message_queue_ml PROPERTIES
 		COMPILE_FLAGS "${MPI_COMPILE_FLAGS}")
 endif()
 
 if(MPI_LINK_FLAGS)
-	set_target_properties(message_queue_4 PROPERTIES
+	set_target_properties(message_queue_ml PROPERTIES
 		LINK_FLAGS "${MPI_LINK_FLAGS}")
 endif()

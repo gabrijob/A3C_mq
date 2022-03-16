@@ -23,7 +23,7 @@
 
 int ml_init_counts[8] = {0,0,0,0,0,0,0,0};
 
-#define A3C_RUN
+#define SAQN_RUN
 
 PyObject* pmodule;
 wchar_t *program;

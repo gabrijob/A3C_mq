@@ -225,9 +225,9 @@ int write_message_to_consumer(int msgperbatch, int msgsize, void** items, int i,
 		&global_avg_spark, &lastonespark, &state,  &qosbase, vector,  maxth, measure, input_hanger_size);
 
 	//if (ml_status != 0) printf("RETURN FROM ML CACHING(%d)\n", ml_status);
-	if (ml_status < 0 && controll > 0) {
+	/*if (ml_status < 0 && controll > 0) {
 		printf("Error on ml_caching (%d) @%d \n", ml_status, controll);
- 	}/* else if (ml_status == 0) {
+ 	} else if (ml_status == 0) {
 		printf("ML caching OK(%d)\n", ml_status);
 	}*/
 

@@ -672,85 +672,7 @@ done
 
 
 saqn1(){
-	mq="message_queue_0"
-	#qosmax=4
-	loss=5 #no use 
-	qosmin=8 #no use
-	rep=1
-	./prepare_env.sh 8 8 9 $interface $infiniband
-	#                name="BP_8-8-9_static-$qosmax-eno"
-	sockets=1
-	#  1 to ib0, "" to eno
-	infiniband=""
-	#interfaces at dahu cluser are ib0 or enp24s0f0
-	n=1;
-	#for app in "GlobalSUMServer" "GlobalHistogramServer" "StatelessSUMServer"; do
-	for app in "SUMServer"; do
-		for i in 32; do
-		#for i in 5 17 45; do
-			qosmax=$i
-			name="BP_8-8-9_saqn-$mq-eno-untrained-1h-qosmin8"
-			while [ $n -le $rep ]; do
-				./start_apps.sh $qosmin $app '--conf "spark.driver.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/DRIVER.log" --conf "spark.executor.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/EXECUTOR.log"' $sockets "" $qosmax $loss $mq
-				sleep 1
-				mkdir LOGS/$name'_'$app'_'$i'_'GB-rep$n;
-				sleep 1
-				./logs.sh
-				sleep 1
-				mv LOGS/*.csv LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				mv LOGS/*.txt LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				mv LOGS/*.log LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				mv LOGS/saqn_* LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				n=$((n+1))
-				sleep 1
-			done;
-			n=1
-		done
-	done
-}
-
-
-saqn2(){
-	mq="message_queue_1"
-	#qosmax=4
-	loss=5 #no use 
-	qosmin=1 #no use
-	rep=1
-	./prepare_env.sh 8 1 9 $interface $infiniband
-	#                name="BP_8-8-9_static-$qosmax-eno"
-	sockets=8
-	#  1 to ib0, "" to eno
-	infiniband=""
-	#interfaces at dahu cluser are ib0 or enp24s0f0
-	n=1;
-	for app in  "GlobalSUMServer" "GlobalHistogramServer" "StatelessSUMServer"; do
-	#for app in "SUMServer"; do
-		for i in 32; do
-		#for i in 5 17 45; do
-			qosmax=$i
-			name="BP_8-8-9_saqn-$mq-eno-trained-2h"
-			while [ $n -le $rep ]; do
-				./start_apps.sh $qosmin $app '--conf "spark.driver.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/DRIVER.log" --conf "spark.executor.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/EXECUTOR.log"' $sockets "" $qosmax $loss $mq
-				sleep 1
-				mkdir LOGS/$name'_'$app'_'$i'_'GB-rep$n;
-				sleep 1
-				./logs.sh
-				sleep 1
-				mv LOGS/*.csv LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				mv LOGS/*.txt LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				mv LOGS/*.log LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				mv LOGS/saqn_* LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				n=$((n+1))
-				sleep 1
-			done;
-			n=1
-		done
-	done
-}
-
-
-saqn3(){
-	mq="message_queue_2"
+	mq="message_queue_ml"
 	#qosmax=4
 	loss=5 #no use 
 	qosmin=1 #no use
@@ -767,46 +689,7 @@ saqn3(){
 		for i in 32; do
 		#for i in 5 17 45; do
 			qosmax=$i
-			name="BP_8-8-9_saqn-$mq-eno-untrained-2h"
-			while [ $n -le $rep ]; do
-				./start_apps.sh $qosmin $app '--conf "spark.driver.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/DRIVER.log" --conf "spark.executor.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/EXECUTOR.log"' $sockets "" $qosmax $loss $mq
-				sleep 1
-				mkdir LOGS/$name'_'$app'_'$i'_'GB-rep$n;
-				sleep 1
-				./logs.sh
-				sleep 1
-				mv LOGS/*.csv LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				mv LOGS/*.txt LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				mv LOGS/*.log LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				mv LOGS/saqn_* LOGS/$name'_'$app'_'$i'_'GB-rep$n
-				n=$((n+1))
-				sleep 1
-			done;
-			n=1
-		done
-	done
-}
-
-
-saqn4(){
-	mq="message_queue_3"
-	#qosmax=4
-	loss=5 #no use 
-	qosmin=1 #no use
-	rep=1
-	./prepare_env.sh 8 8 9 $interface $infiniband
-	#                name="BP_8-8-9_static-$qosmax-eno"
-	sockets=1
-	#  1 to ib0, "" to eno
-	infiniband=""
-	#interfaces at dahu cluser are ib0 or enp24s0f0
-	n=1;
-	#for app in "SUMServer" "GlobalSUMServer" "GlobalHistogramServer" "StatelessSUMServer"; do
-	for app in "SUMServer"; do
-		for i in 32; do
-		#for i in 5 17 45; do
-			qosmax=$i
-			name="BP_8-8-9_saqn-$mq-eno-untrained-2h"
+			name="BP_8-8-9_saqn-$mq-eno-saqn-30min-block-interval-32ms"
 			while [ $n -le $rep ]; do
 				./start_apps.sh $qosmin $app '--conf "spark.driver.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/DRIVER.log" --conf "spark.executor.extraJavaOptions=-XX:+PrintGCDetails -XX:+PrintGCDateStamps -Xloggc:/tmp/EXECUTOR.log"' $sockets "" $qosmax $loss $mq
 				sleep 1
@@ -827,7 +710,7 @@ saqn4(){
 }
 
 a3c1(){
-	mq="message_queue_4"
+	mq="message_queue_ml"
 	#qosmax=4
 	loss=5 #no use 
 	qosmin=8 #no use
@@ -864,12 +747,8 @@ a3c1(){
 	done
 }
 
-#saqn1
-a3c1
-#saqn1
-#saqn2
-#saqn3
-#saqn4
+#a3c1
+saqn1
 #s
 #sa
 #sa1

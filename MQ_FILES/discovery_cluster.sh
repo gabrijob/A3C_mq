@@ -23,6 +23,7 @@ for i in `cat NODEFILES/nodefile `; do
 #
 	ssh root@$i "apt -y update"
 	ssh root@$i "source /home/ggrabher/NFS_ERODS/Scripts/FUNCTIONS/install_ml_module.sh"
+	ssh root@$i "pip3 install matplotlib"
 #	ssh root@$i "apt -y install dstat ifstat"
 #	ssh root@$i "apt -y install python3 python3-pip python3-dev python3-venv"
 #	ssh root@$i "pip3 install --upgrade pip"
